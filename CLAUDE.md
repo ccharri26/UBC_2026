@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 free baseline probability → value-of-information check → skip / Basic (~$0.01) / Smart Money (~$0.05) → pay via x402 → update probability → trade or pass → score after settlement.
 
 - Paid data is bought only for **ETH and SOL**. Nansen doesn't cover XRP and covers BTC at most through wrapped tokens, so BTC and XRP contracts use the baseline-only path unless a paid test of wrapped BTC proves useful.
-- Target **daily-and-longer price-threshold contracts**, not the 5/15-minute "up" contracts (Nansen flow data is too slow for those).
+- Target every crypto horizon Gemini lists: the **5- and 15-minute "up" contracts** and the **hourly-and-longer price-threshold ladders** (Gemini files ladders expiring hours to days out under the `1H` series). The value-of-information check decides per horizon whether Nansen data is fast enough to be worth buying; short horizons will often be baseline-only.
 - One Nansen call per asset serves every contract on that asset, so cache and share purchases across contracts.
 - Trades run in **shadow mode** (simulated) by default; Gemini sandbox orders are opt-in.
 - Scoring compares baseline vs. informed forecast vs. market price, and tier cost vs. forecast improvement. Count results **per event**, because contracts in one event share an outcome.

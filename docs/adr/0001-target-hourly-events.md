@@ -1,3 +1,0 @@
-# Target hourly Events, not daily-and-longer
-
-The README originally targeted daily-and-longer price-threshold Events, reasoning that Nansen flow data (hourly-or-slower windows) is too slow for 5/15-minute Contracts. A live check of Gemini's listing (2026-11-13) showed only 5M, 15M, 1H and one monthly Event per asset, with no daily Events. We target the **1H Events** (ladders of ~8 strike Contracts): they settle many times before the Nov 20 deadline, so scoring has real results to show, and Nansen's flow-intelligence offers 1h windows. Daily Events are taken opportunistically if they appear; 5M/15M "up" Contracts and the monthly Event (settles after the deadline) are out of scope.
