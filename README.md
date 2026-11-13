@@ -59,3 +59,7 @@ Entered in the **Agentic Payments and AI** track of the University Blockchain Co
 - Whether Nansen's endpoints give useful signals for all four assets (XRP in particular).
 - Whether Gemini's sandbox lists crypto prediction markets with realistic prices.
 - Which price source Gemini uses to settle its crypto contracts.
+
+## Team
+Andrew: Gemini market data, baseline math, trade/abstain logic, scoring
+Chase: x402 wallet and Nansen calls, guardrails and voice approval, dashboard
