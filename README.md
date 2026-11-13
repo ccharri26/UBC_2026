@@ -43,7 +43,7 @@ All limits are plain code that runs before any payment is signed. The AI cannot 
 - Only the official Nansen host and its listed endpoints, paid to the expected address, in USDC on Base.
 - Hard cap per call ($0.05), plus per-market, per-run, and daily budgets.
 - A price-drift check against Nansen's published price list, a kill switch, and a pause after repeated payment failures.
-- Wallet capped at about $5 USDC. Shadow mode and a local mock seller are the defaults for development.
+- Wallet capped at about $5 USDC. Trades default to shadow mode; data purchases always go to the real Nansen API.
 - Nansen responses are reduced to numbers before the AI sees them, so text inside a response cannot give it instructions.
 
 ## Scoring

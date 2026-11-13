@@ -1,0 +1,30 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Local agent state (decision log, Nansen cache, SQLite)
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.next/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
