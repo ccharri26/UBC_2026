@@ -62,4 +62,5 @@ Entered in the **Agentic Payments and AI** track of the University Blockchain Co
 
 ## Team
 Andrew: Gemini market data, baseline math, trade/abstain logic, scoring
+
 Chase: x402 wallet and Nansen calls, guardrails and voice approval, dashboard
