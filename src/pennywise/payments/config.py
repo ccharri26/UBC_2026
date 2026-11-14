@@ -1,7 +1,9 @@
 """Settings for payments, read from the environment and the repo's .env file.
 
-The .env file is re-read on every call so flipping KILL_SWITCH=true takes effect
-on the next payment without a restart. Real environment variables win over .env.
+.env is READ-ONLY to code: it holds the wallet key and is edited by hand only.
+Runtime state (the dashboard's kill switch) lives in data/, see control.py.
+The .env file is re-read on every call, so hand edits take effect on the next
+payment without a restart. Real environment variables win over .env.
 """
 
 import os
@@ -68,7 +70,7 @@ def load_limits() -> Limits:
         per_event=budget("BUDGET_PER_MARKET_USD"),
         per_run=budget("BUDGET_PER_RUN_USD"),
         daily=budget("BUDGET_DAILY_USD"),
-        # Anything other than an explicit "false" counts as ON: fail closed.
+        # The hand-set master lock. Anything other than an explicit "false" counts as ON: fail closed.
         kill_switch=(env("KILL_SWITCH") or "true").lower() != "false",
     )
 
@@ -79,3 +81,4 @@ def private_key() -> str:
     if key is None:
         raise ConfigError("WALLET_PRIVATE_KEY is not set")
     return key
+

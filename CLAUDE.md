@@ -4,7 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**PennyWise**: a hackathon agent (University Blockchain Conference, Agentic Payments and AI track; deadline Fri Nov 20 2026, 12:00 PM CST) that scans Gemini crypto prediction markets (BTC, ETH, SOL, XRP), decides whether paid Nansen on-chain data is worth buying for a contract, pays for it with USDC on Base via x402, and then decides whether to trade. `README.md` is the source of truth for design; no code has been written yet, so there are no build/test commands to record. Add them here once a stack is chosen.
+**PennyWise**: a hackathon agent (University Blockchain Conference, Agentic Payments and AI track; deadline Fri Nov 20 2026, 12:00 PM CST) that scans Gemini crypto prediction markets (BTC, ETH, SOL, XRP), decides whether paid Nansen on-chain data is worth buying for a contract, pays for it with USDC on Base via x402, and then decides whether to trade. `README.md` is the source of truth for design.
+
+### Commands
+
+Run from the repo root (Python via uv). Set `NANSEN_STUB=true` in `.env` to get fake Nansen data with no spending.
+
+- `uv run uvicorn pennywise.api.app:app --reload`: API + dashboard. Dashboard at http://127.0.0.1:8000/, API docs at http://127.0.0.1:8000/docs.
+- `uv run python -m pennywise.nansen [--asset ETH|SOL] [--horizon 05M|15M|1H]`: signals via `get_signals` (refuses to spend unless stub mode is on or `--live` is passed).
+- `uv run python -m pennywise.payments --dry-run [--tier basic|smart_money] [--asset ETH|SOL]`: check guardrails and signing without paying. `--live` makes a real payment.
 
 ### Decision pipeline
 
@@ -18,7 +26,7 @@ free baseline probability → value-of-information check → skip / Basic (~$0.0
 
 ### Layout
 
-Python + FastAPI, packaged as `src/pennywise/`, with one folder per step of the decision flow and each folder owned by one person: `markets/` (Gemini client), `forecast/` (baseline + informed update), `info/` (value-of-information: skip/Basic/Smart Money), `nansen/` (calls reduced to numbers), `payments/` (x402 wallet; **guardrails live here** so signing is impossible without passing every limit), `trading/`, `scoring/`, `narrator/` (LLM explain/veto), `api/` (thin FastAPI layer; the agent must run without HTTP). `frontend/` is the separate dashboard app. `data/` is git-ignored local state (decision log, Nansen response cache). There is no `tests/` folder.
+Python + FastAPI, packaged as `src/pennywise/`, with one folder per step of the decision flow and each folder owned by one person: `markets/` (Gemini client), `forecast/` (baseline + informed update), `info/` (value-of-information: skip/Basic/Smart Money), `nansen/` (calls reduced to numbers), `payments/` (x402 wallet; **guardrails live here** so signing is impossible without passing every limit), `trading/`, `scoring/`, `narrator/` (LLM explain/veto), `api/` (thin FastAPI layer; the agent must run without HTTP). `frontend/` is the dashboard: plain HTML + JS for now, meant to be swapped for React later, so all API calls stay in `frontend/api.js` and the UI talks only to `/api`, never to `data/`. `data/` is git-ignored local state: `payments.jsonl` (payment ledger; the daily budget is summed from it), `control.json` (dashboard kill switch), later the decision log and Nansen cache. Code never writes `.env`: it is hand-edited config holding the wallet key, and `KILL_SWITCH=true` there is a lock the dashboard cannot override. There is no `tests/` folder.
 
 ### Safety invariants (must hold in any implementation)
 

@@ -90,6 +90,12 @@ def get_signals(asset: str, horizon: Horizon, now: Callable[[], datetime] = _utc
     return signals
 
 
+def cached_signals(now: Callable[[], datetime] = _utc_now) -> list[NansenSignals]:
+    """Unexpired cached results for the current mode (stub or live), for display. Never buys."""
+    t, stub = now(), stub_mode()
+    return [signals for key, (expires_at, signals) in _cache.items() if key[0] == stub and t < expires_at]
+
+
 def _purchase(asset: str, tier: Tier) -> NansenSignals:
     """Buy fresh data from Nansen and reduce it to numbers. The only place money is spent.
 

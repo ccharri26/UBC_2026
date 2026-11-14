@@ -13,6 +13,7 @@ may settle it even if we never see a response, so we assume the money is gone.
 import json
 from datetime import datetime, timezone
 
+from . import control
 from .config import DATA_DIR, Limits
 
 LEDGER = DATA_DIR / "payments.jsonl"
@@ -45,14 +46,14 @@ def _append(row: dict) -> None:
 def check(amount: int, limits: Limits, event_id: str | None, now: datetime) -> None:
     """Raise PaymentRefused if paying `amount` now would break any limit."""
     if limits.kill_switch:
-        raise PaymentRefused("kill switch is on (KILL_SWITCH is not 'false')")
+        raise PaymentRefused("kill switch is on in .env (KILL_SWITCH is not 'false')")
+    if control.dashboard_stopped():
+        raise PaymentRefused("spending is switched off from the dashboard (data/control.json)")
     if _consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
         raise PaymentRefused(f"paused after {_consecutive_failures} consecutive payment failures; restart to resume")
 
     signed = [r for r in _ledger_rows() if r.get("status") == "signed"]
-    today = now.astimezone(timezone.utc).date().isoformat()
-    daily = sum(r["amount"] for r in signed if r["at"][:10] == today)
-    budgets = [("run", _run_spent, limits.per_run), ("daily", daily, limits.daily)]
+    budgets = [("run", _run_spent, limits.per_run), ("daily", spent_today(now), limits.daily)]
     if event_id is not None:
         per_event = sum(r["amount"] for r in signed if r.get("event_id") == event_id)
         budgets.append((f"event {event_id}", per_event, limits.per_event))
@@ -76,3 +77,33 @@ def record_outcome(ok: bool, url: str, tx_hash: str | None, detail: str, now: da
     _append({"status": "settled" if ok else "failed", "at": now.isoformat(), "url": url,
              "tx_hash": tx_hash, "detail": detail})
 
+
+
+# --- Read-only views for the dashboard/API. ---------------------------------------
+
+
+def spent_today(now: datetime) -> int:
+    """USDC base units signed so far on `now`'s UTC day (what the daily budget counts)."""
+    today = now.astimezone(timezone.utc).date().isoformat()
+    return sum(r["amount"] for r in _ledger_rows() if r.get("status") == "signed" and r["at"][:10] == today)
+
+
+def paused() -> bool:
+    """True if this process stopped paying after repeated failures."""
+    return _consecutive_failures >= MAX_CONSECUTIVE_FAILURES
+
+
+def history() -> list[dict]:
+    """One entry per signed payment, oldest first, joined with its outcome.
+
+    status is "settled", "failed", or "pending" (signed, no outcome recorded: the
+    process died mid-request, so treat it as spent).
+    """
+    entries: dict[tuple[str, str], dict] = {}
+    for row in _ledger_rows():
+        key = (row.get("at", ""), row.get("url", ""))
+        if row.get("status") == "signed":
+            entries[key] = {**row, "status": "pending", "tx_hash": None, "detail": None}
+        elif key in entries:
+            entries[key].update(status=row["status"], tx_hash=row.get("tx_hash"), detail=row.get("detail"))
+    return list(entries.values())
