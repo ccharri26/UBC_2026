@@ -21,7 +21,7 @@ An AI agent that looks at crypto prediction markets on Gemini, decides whether i
 | **x402** | An HTTP standard where a server replies "402 Payment Required" with a price and the agent pays and retries, with no account or API key. |
 | **Agent wallet** | A throwaway Base wallet holding a few dollars of USDC. The balance is the most the agent can ever lose. |
 
-**Contracts:** Gemini lists short 5- and 15-minute "up" contracts and daily-and-longer price-threshold contracts. We focus on the **daily threshold contracts**, because Nansen's flow data covers windows of an hour or more and is too slow to matter for 5-minute markets.
+**Contracts:** Gemini lists short 5- and 15-minute "up" contracts and daily-and-longer price-threshold contracts. We trade both: the hourly threshold ladders use the Smart Money tier (1-hour flows), and the 5- and 15-minute contracts use the Basic tier (5-minute flows).
 
 ## How it decides
 
@@ -54,9 +54,18 @@ Every decision, payment, and trade is logged. After a market settles, we compare
 
 Entered in the **Agentic Payments and AI** track of the University Blockchain Conference hackathon. Submission deadline: Fri Nov 20, 12:00 PM CST.
 
+## Verified so far
+
+- x402 payments to Nansen work end to end: USDC on Base, gasless for us (tested Nov 14: $0.01 Basic and $0.05 Smart Money, both for ETH).
+- Smart Money (`smart-money/netflow`) returns a row for native ETH with a 1h net flow and trader count.
+- Basic (`tgm/flow-intelligence`, 5m) for native ETH is coarse: smart-trader flow came back null and whale flow 0; only exchange net flow had a value.
+
 ## Still unverified
 
-- Whether Nansen's endpoints give useful signals for all four assets (XRP in particular).
+- Whether Nansen's paid data improves forecasts enough to cover its cost (Basic looks weak for native ETH).
+- SOL on either tier (Solana handles the native-token placeholder differently).
+- Whether `trader_count` from Smart Money covers the last hour or a longer window.
+- Nansen covers BTC only through wrapped tokens and XRP not at all, so both stay baseline-only.
 - Whether Gemini's sandbox lists crypto prediction markets with realistic prices.
 - Which price source Gemini uses to settle its crypto contracts.
 

@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 free baseline probability → value-of-information check → skip / Basic (~$0.01) / Smart Money (~$0.05) → pay via x402 → update probability → trade or pass → score after settlement.
 
 - Paid data is bought only for **ETH and SOL**. Nansen doesn't cover XRP and covers BTC at most through wrapped tokens, so BTC and XRP contracts use the baseline-only path unless a paid test of wrapped BTC proves useful.
-- Target every crypto horizon Gemini lists: the **5- and 15-minute "up" contracts** and the **hourly-and-longer price-threshold ladders** (Gemini files ladders expiring hours to days out under the `1H` series). The value-of-information check decides per horizon whether Nansen data is fast enough to be worth buying; short horizons will often be baseline-only.
+- Target every crypto horizon Gemini lists: the **5- and 15-minute "up" contracts** and the **hourly-and-longer price-threshold ladders** (Gemini files ladders expiring hours to days out under the `1H` series). Each horizon has one paid tier: **Smart Money** (`smart-money/netflow`, 1h window) for 1H ladders, **Basic** (`tgm/flow-intelligence`, 5m window) for 5M and 15M contracts (Nansen has no 15m window). The value-of-information check still decides skip vs. buy.
 - One Nansen call per asset serves every contract on that asset, so cache and share purchases across contracts.
 - Trades run in **shadow mode** (simulated) by default; Gemini sandbox orders are opt-in.
 - Scoring compares baseline vs. informed forecast vs. market price, and tier cost vs. forecast improvement. Count results **per event**, because contracts in one event share an outcome.
@@ -24,7 +24,7 @@ Python + FastAPI, packaged as `src/pennywise/`, with one folder per step of the 
 
 - Every spending limit is plain code that runs **before** a payment is signed. The LLM only explains decisions and can veto or shrink a trade; it must never be able to raise spend or bypass a limit.
 - Payments only to the official Nansen host (`api.nansen.ai`) and its listed endpoints, to the expected pay-to address, in USDC on Base.
-- Hard cap of $0.05 per call, plus per-market, per-run and daily budgets; a price-drift check against `/.well-known/x402`; a kill switch; a pause after repeated payment failures.
+- Hard cap of $0.05 per call, plus per-market, per-run and daily budgets; a price-drift check (every fresh 402 offer must match the price pinned in `payments/expected.py`; `/.well-known/x402` lists no prices); a kill switch; a pause after repeated payment failures.
 - Reduce Nansen responses to numbers before the LLM sees them (prompt-injection defence).
 - Trades default to shadow mode. All x402 payments go to the real Nansen API. The wallet holds about $5 USDC at most.
 
