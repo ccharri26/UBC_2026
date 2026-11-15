@@ -20,16 +20,22 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from pennywise.nansen import Horizon, NansenSignals, NansenUnavailable, cached_signals, get_signals, stub_mode
-from pennywise.nansen.bodies import NATIVE_TOKENS
-from pennywise.nansen.endpoints import ENDPOINTS
-from pennywise.nansen.horizons import HORIZON_TIER
+from pennywise.nansen import (
+    Horizon,
+    NansenSignals,
+    NansenUnavailable,
+    cached_signals,
+    get_signals,
+    horizons_for,
+    stub_mode,
+    supported_assets,
+    tier_for_url,
+)
 from pennywise.payments import control, expected, guardrails, wallet
 from pennywise.payments.config import ROOT, ConfigError, env, load_limits
 
 app = FastAPI(title="PennyWise", description="Read-only views of payments and Nansen signals, plus a kill switch.")
 
-_TIER_BY_URL = {e.url: t.value for t, e in ENDPOINTS.items()}
 _BASESCAN_TX = "https://basescan.org/tx/"
 
 
@@ -42,7 +48,7 @@ def _signals_dict(s: NansenSignals) -> dict:
     d["tier"] = s.tier.value
     d["fetched_at"] = s.fetched_at.isoformat()
     d["cost_usd"] = _usd(s.cost_usdc)
-    d["horizons"] = [h.value for h, tier in HORIZON_TIER.items() if tier == s.tier]  # 5M and 15M share Basic
+    d["horizons"] = [h.value for h in horizons_for(s.tier)]  # 5M and 15M share Basic
     return d
 
 
@@ -100,7 +106,7 @@ def payments(limit: int = 50) -> list[dict]:
         {
             "at": r.get("at"),
             "status": r["status"],
-            "tier": _TIER_BY_URL.get(r.get("url"), "unknown"),
+            "tier": tier.value if (tier := tier_for_url(r.get("url"))) else "unknown",
             "amount_usd": _usd(r.get("amount", 0)),
             "event_id": r.get("event_id"),
             "tx_hash": r.get("tx_hash"),
@@ -122,7 +128,7 @@ def signals() -> dict:
         live = sorted(cached_signals(), key=lambda s: (s.asset, s.tier.value))
         return {"mode": "live", "signals": [_signals_dict(s) for s in live], "errors": []}
     out, errors, seen = [], [], set()
-    for asset in NATIVE_TOKENS:
+    for asset in supported_assets():
         for horizon in Horizon:
             try:
                 s = get_signals(asset, horizon)

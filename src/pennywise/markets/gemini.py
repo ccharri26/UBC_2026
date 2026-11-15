@@ -9,7 +9,7 @@ import httpx
 
 from pennywise.forecast.baseline import blend, minute_volatility, prob_above, typical_move
 from pennywise.info.value import Quote, decide
-from pennywise.nansen.horizons import HORIZON_TIER, Horizon
+from pennywise.nansen import Horizon, tier_of
 from pennywise.trading.edge import call, edges
 
 EVENTS_URL = "https://api.gemini.com/v1/prediction-markets/events"
@@ -227,7 +227,7 @@ def quotes_by_purchase(events: list[dict], now: datetime) -> dict[tuple, list[Qu
     groups: dict[tuple, list[Quote]] = {}
     for event in events:
         asset = asset_of(event)
-        tier = HORIZON_TIER[Horizon(event["series"][len(asset):])]
+        tier = tier_of(Horizon(event["series"][len(asset):]))
         mins_left = (parse_time(event["expiryDate"]) - now).total_seconds() / 60
         for c in event["contracts"]:
             p = c.get("prices") or {}

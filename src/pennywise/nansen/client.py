@@ -58,9 +58,56 @@ def stub_mode() -> bool:
 _cache: dict[tuple, tuple[datetime, NansenSignals]] = {}
 
 
+def is_supported(asset: str) -> bool:
+    """True if Nansen sells paid data for this asset (ETH, SOL). BTC/XRP use the baseline only."""
+    return asset in NATIVE_TOKENS
+
+
+def supported_assets() -> tuple[str, ...]:
+    """Assets with paid Nansen data, in a stable order."""
+    return tuple(NATIVE_TOKENS)
+
+
+def horizons_for(tier: Tier) -> list[Horizon]:
+    """Every Horizon that buys this Tier (Basic serves both 5M and 15M)."""
+    return [h for h, t in HORIZON_TIER.items() if t == tier]
+
+
+def tier_for_url(url: str | None) -> Tier | None:
+    """Which Tier a paid URL belongs to (e.g. for labelling ledger rows); None if it isn't ours."""
+    return next((t for t, e in ENDPOINTS.items() if e.url == url), None)
+
+
+def tier_of(horizon: Horizon) -> Tier:
+    """The one paid Tier a Horizon buys (5M/15M -> Basic, 1H -> Smart Money)."""
+    return HORIZON_TIER[horizon]
+
+
+def tier_price(tier: Tier) -> int:
+    """Price of one call for this Tier, in USDC base units (10_000 = $0.01)."""
+    return ENDPOINTS[tier].price
+
+
 def price_of(horizon: Horizon) -> int:
     """Price of one call for this Horizon, in USDC base units (10_000 = $0.01)."""
-    return ENDPOINTS[HORIZON_TIER[horizon]].price
+    return tier_price(tier_of(horizon))
+
+
+def is_cached(asset: str, tier: Tier, now: Callable[[], datetime] = _utc_now) -> bool:
+    """True if get_signals would return this asset+tier from cache right now (costs nothing). Never buys.
+
+    Live mode also checks data/nansen_cache.json, so purchases by other processes count.
+    """
+    if not is_supported(asset):
+        return False
+    t, stub = now(), stub_mode()
+    slot, _ = _cache_slot(asset, tier, t)
+    key = (stub, *slot)
+    hit = _cache.get(key)
+    if (hit is None or t >= hit[0]) and not stub:
+        _load_from_disk(t)
+        hit = _cache.get(key)
+    return hit is not None and t < hit[0]
 
 
 def _cache_slot(asset: str, tier: Tier, now: datetime) -> tuple[tuple, datetime]:
@@ -78,7 +125,7 @@ def get_signals(asset: str, horizon: Horizon, now: Callable[[], datetime] = _utc
     whenever there is no data; the caller should then use the baseline only.
     `now` is injectable for tests.
     """
-    if asset not in NATIVE_TOKENS:
+    if not is_supported(asset):
         raise UnsupportedAsset(f"No paid Nansen data for {asset!r}; supported: {sorted(NATIVE_TOKENS)}")
     tier = HORIZON_TIER[horizon]
     t = now()

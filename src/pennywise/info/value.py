@@ -12,8 +12,7 @@ import math
 from dataclasses import dataclass
 
 from pennywise.forecast.baseline import blend, prob_above
-from pennywise.nansen.bodies import NATIVE_TOKENS
-from pennywise.nansen.endpoints import ENDPOINTS, Tier
+from pennywise.nansen import Tier, is_cached, is_supported, tier_price
 from pennywise.trading.edge import MAX_CONTRACTS, call, edges
 
 # Possible Nansen readings and how likely we think each is, before buying.
@@ -93,12 +92,16 @@ def value_of_information(
 def decide(
     asset: str, tier: Tier, quotes: list[Quote], spot: float, minute_vol: float
 ) -> InfoDecision:
-    price = ENDPOINTS[tier].price / 1_000_000  # USDC base units -> dollars
-    if asset not in NATIVE_TOKENS:
-        return InfoDecision(asset, tier, 0.0, price, False, "no Nansen coverage")
+    if not is_supported(asset):
+        return InfoDecision(asset, tier, 0.0, tier_price(tier) / 1_000_000, False, "no Nansen coverage")
+    # Fresh data already in the cache costs nothing more, so always use it.
+    cached = is_cached(asset, tier)
+    price = 0.0 if cached else tier_price(tier) / 1_000_000  # USDC base units -> dollars
     if not quotes:
         return InfoDecision(asset, tier, 0.0, price, False, "no two-sided contracts")
     value = value_of_information(quotes, spot, minute_vol, tier)
+    if cached:
+        return InfoDecision(asset, tier, value, price, True, "already cached, free")
     if value > price:
         return InfoDecision(asset, tier, value, price, True, "worth more than it costs")
     return InfoDecision(asset, tier, value, price, False, "not worth its price")
