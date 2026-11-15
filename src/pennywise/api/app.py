@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from pennywise.nansen import Horizon, NansenSignals, NansenUnavailable, cached_signals, get_signals, stub_mode
 from pennywise.nansen.bodies import NATIVE_TOKENS
 from pennywise.nansen.endpoints import ENDPOINTS
+from pennywise.nansen.horizons import HORIZON_TIER
 from pennywise.payments import control, expected, guardrails, wallet
 from pennywise.payments.config import ROOT, ConfigError, env, load_limits
 
@@ -41,6 +42,7 @@ def _signals_dict(s: NansenSignals) -> dict:
     d["tier"] = s.tier.value
     d["fetched_at"] = s.fetched_at.isoformat()
     d["cost_usd"] = _usd(s.cost_usdc)
+    d["horizons"] = [h.value for h, tier in HORIZON_TIER.items() if tier == s.tier]  # 5M and 15M share Basic
     return d
 
 
@@ -113,11 +115,12 @@ def payments(limit: int = 50) -> list[dict]:
 def signals() -> dict:
     """Latest Nansen signals per asset and Horizon.
 
-    Stub mode: fetched fresh (fake, free). Live mode: only what is already cached in
-    this process; this endpoint never pays.
+    Stub mode: fetched fresh (fake, free). Live mode: what the agent already bought
+    (data/nansen_cache.json); this endpoint never pays.
     """
     if not stub_mode():
-        return {"mode": "live", "signals": [_signals_dict(s) for s in cached_signals()], "errors": []}
+        live = sorted(cached_signals(), key=lambda s: (s.asset, s.tier.value))
+        return {"mode": "live", "signals": [_signals_dict(s) for s in live], "errors": []}
     out, errors, seen = [], [], set()
     for asset in NATIVE_TOKENS:
         for horizon in Horizon:
@@ -128,7 +131,7 @@ def signals() -> dict:
                 continue
             if id(s) not in seen:  # 5M and 15M share one result
                 seen.add(id(s))
-                out.append({**_signals_dict(s), "horizons": [h.value for h in Horizon if get_signals(asset, h) is s]})
+                out.append(_signals_dict(s))
     return {"mode": "stub", "signals": out, "errors": errors}
 
 

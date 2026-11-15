@@ -1,9 +1,11 @@
 """Public entry point for Nansen data: callers pass an asset and a Horizon, never a Tier.
 
-Purchases are cached in memory so one paid call serves every Contract that needs it:
+Purchases are cached so one paid call serves every Contract that needs it:
 - Smart Money: one per (asset, UTC clock hour), shared by the whole 1H ladder.
 - Basic: one per asset, reused for 10 minutes, shared by 5M and 15M Events.
   Nansen caches flow-intelligence for 10-30 min, so rebuying sooner pays for the same data.
+Paid results are also saved to data/nansen_cache.json (store.py): a restart reuses
+them, and other processes (the dashboard API) can see them. Stub results stay in memory.
 
 Callers handle one error: NansenUnavailable means "use the baseline only".
 Set NANSEN_STUB=true to get fake signals with no network and no spending.
@@ -20,6 +22,7 @@ from .endpoints import ENDPOINTS, Tier
 from .horizons import HORIZON_TIER, Horizon
 from .parsers import PARSERS, NansenResponseError
 from .signals import NansenSignals
+from . import store
 from .stub import stub_signals
 
 BASIC_TTL = timedelta(minutes=10)
@@ -83,16 +86,37 @@ def get_signals(asset: str, horizon: Horizon, now: Callable[[], datetime] = _utc
     slot, expires_at = _cache_slot(asset, tier, t)
     key = (stub, *slot)  # stub and real data never share a cache entry
     hit = _cache.get(key)
+    if (hit is None or t >= hit[0]) and not stub:
+        _load_from_disk(t)  # a restart, or another process, may already have bought it
+        hit = _cache.get(key)
     if hit is not None and t < hit[0]:
         return hit[1]
-    signals = stub_signals(asset, tier, t) if stub else _purchase(asset, tier)
+    if stub:
+        signals = stub_signals(asset, tier, t)
+    else:
+        signals = _purchase(asset, tier)
+        store.save(slot, expires_at, signals, t)
     _cache[key] = (expires_at, signals)
     return signals
 
 
+def _load_from_disk(t: datetime) -> None:
+    """Merge saved live entries into memory, keeping whichever of each expires later."""
+    for slot, entry in store.load(t).items():
+        key = (False, *slot)
+        if key not in _cache or _cache[key][0] < entry[0]:
+            _cache[key] = entry
+
+
 def cached_signals(now: Callable[[], datetime] = _utc_now) -> list[NansenSignals]:
-    """Unexpired cached results for the current mode (stub or live), for display. Never buys."""
+    """Unexpired cached results for the current mode (stub or live), for display. Never buys.
+
+    Live mode re-reads data/nansen_cache.json, so it includes purchases made by other
+    processes (e.g. the agent, when called from the dashboard API).
+    """
     t, stub = now(), stub_mode()
+    if not stub:
+        _load_from_disk(t)
     return [signals for key, (expires_at, signals) in _cache.items() if key[0] == stub and t < expires_at]
 
 
