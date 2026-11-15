@@ -6,8 +6,9 @@ reach the LLM as instructions (prompt-injection defence).
 Net flow = USD flowing into a group of wallets minus USD flowing out, over the
 Tier's window. Positive means the group is accumulating; negative, distributing.
 
-Fields for the Tier you did not buy are None. None means "not measured" and is
-different from 0.0, which means "measured, nothing moved".
+Fields for the Tier you did not buy are None. None means "not measured" (including a
+Basic segment where Nansen saw no wallets) and is different from 0.0, which means
+"measured, nothing moved".
 """
 
 import math

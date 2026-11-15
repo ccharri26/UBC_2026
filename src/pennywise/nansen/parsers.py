@@ -3,9 +3,11 @@
 All text in the response (`warnings`, symbols, labels) is dropped here so nothing
 Nansen returns can reach the LLM as instructions.
 
-A null in the response stays None ("not measured"), never 0.0. Example from a real
-5m ETH flow-intelligence call: smart_trader_net_flow_usd was null while
-whale_net_flow_usd was 0.0.
+A null in the response stays None ("not measured"), never 0.0. Flow-intelligence also
+reports 0.0 for a segment it saw no wallets in, which means "nothing seen", not
+"measured, nothing moved", so that becomes None too (see _segment_flow). Example from
+the real 5m ETH call on Nov 14: smart_trader_net_flow_usd null, whale_net_flow_usd 0.0
+with whale_wallet_count 0 (both now None), exchange_net_flow_usd 106638.11 (kept).
 """
 
 import math
@@ -37,6 +39,19 @@ def _count(row: dict, key: str) -> int | None:
     return int(value)
 
 
+def _segment_flow(row: dict, segment: str) -> float | None:
+    """Net flow for one wallet segment, or None if Nansen saw nothing there.
+
+    Exactly 0.0 with a wallet count of 0 (or missing) is "no wallets seen", so None.
+    A non-zero flow is always kept, even with a count of 0: the Nov 14 ETH call had
+    exchange flow of $106k with exchange_wallet_count 0, so counts alone aren't trusted.
+    """
+    flow = _number(row, f"{segment}_net_flow_usd")
+    if flow == 0.0 and not _count(row, f"{segment}_wallet_count"):
+        return None
+    return flow
+
+
 def _rows(raw: object) -> list[dict]:
     if not isinstance(raw, dict) or not isinstance(raw.get("data"), list):
         raise NansenResponseError("expected an object with a 'data' list")
@@ -54,9 +69,9 @@ def parse_flow_intelligence(raw: object, asset: str, fetched_at: datetime, cost_
         tier=Tier.BASIC,
         fetched_at=fetched_at,
         cost_usdc=cost_usdc,
-        smart_trader_net_flow_usd=_number(row, "smart_trader_net_flow_usd"),
-        whale_net_flow_usd=_number(row, "whale_net_flow_usd"),
-        exchange_net_flow_usd=_number(row, "exchange_net_flow_usd"),
+        smart_trader_net_flow_usd=_segment_flow(row, "smart_trader"),
+        whale_net_flow_usd=_segment_flow(row, "whale"),
+        exchange_net_flow_usd=_segment_flow(row, "exchange"),
         smart_trader_wallet_count=_count(row, "smart_trader_wallet_count"),
     )
 
