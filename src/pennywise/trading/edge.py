@@ -1,4 +1,4 @@
-"""Edge per side and the buy Yes / buy No / pass rule. Display only: nothing trades yet."""
+"""Edge per side and the buy Yes / buy No / pass rule. shadow.py picks trades from these calls."""
 
 # Only trade when expected profit per contract, after fees, beats this margin.
 MIN_EDGE = 0.03
