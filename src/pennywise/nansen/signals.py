@@ -20,7 +20,7 @@ from .endpoints import Tier
 
 @dataclass(frozen=True)
 class NansenSignals:
-    asset: str  # "ETH" or "SOL"
+    asset: str  # a NATIVE_TOKENS asset (MVP: "ETH")
     tier: Tier
     fetched_at: datetime  # when we bought it, not when the data is from (Basic may be 10-30 min old)
     cost_usdc: int  # what this purchase cost, in USDC base units (10_000 = $0.01)

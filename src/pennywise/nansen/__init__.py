@@ -3,11 +3,13 @@
 from .client import (
     NansenUnavailable,
     UnsupportedAsset,
+    cached_result,
     cached_signals,
     get_signals,
     horizons_for,
     is_cached,
     is_supported,
+    paid_but_unusable,
     price_of,
     stub_mode,
     supported_assets,
@@ -22,6 +24,6 @@ from .interpret import reading
 from .signals import NansenSignals
 
 __all__ = [
-    "Horizon", "NansenResponseError", "NansenSignals", "NansenUnavailable", "Tier", "UnsupportedAsset", "cached_signals", "get_signals",
-    "horizons_for", "is_cached", "is_supported", "price_of", "reading", "stub_mode", "supported_assets", "tier_for_url", "tier_of", "tier_price",
+    "Horizon", "NansenResponseError", "NansenSignals", "NansenUnavailable", "Tier", "UnsupportedAsset", "cached_result", "cached_signals", "get_signals",
+    "horizons_for", "is_cached", "is_supported", "paid_but_unusable", "price_of", "reading", "stub_mode", "supported_assets", "tier_for_url", "tier_of", "tier_price",
 ]

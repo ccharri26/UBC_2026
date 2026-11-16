@@ -7,7 +7,8 @@
 import argparse
 import json
 
-from pennywise.nansen.bodies import build_body
+from pennywise.nansen.bodies import NATIVE_TOKENS, build_body
+from pennywise.nansen.client import market_id
 from pennywise.nansen.endpoints import ENDPOINTS
 
 from .pay import pay
@@ -16,12 +17,12 @@ parser = argparse.ArgumentParser(prog="python -m pennywise.payments")
 mode = parser.add_mutually_exclusive_group(required=True)
 mode.add_argument("--dry-run", action="store_true", help="sign locally but send no payment")
 mode.add_argument("--live", action="store_true", help="really pay Nansen and fetch the data")
-parser.add_argument("--asset", default="ETH", choices=["ETH", "SOL"])
+parser.add_argument("--asset", default="ETH", choices=list(NATIVE_TOKENS))  # paid assets only
 parser.add_argument("--tier", default="basic", choices=[t.value for t in ENDPOINTS])
 args = parser.parse_args()
 
 endpoint = next(e for t, e in ENDPOINTS.items() if t.value == args.tier)
-receipt = pay(endpoint.url, build_body(endpoint, args.asset), dry_run=args.dry_run)
+receipt = pay(endpoint.url, build_body(endpoint, args.asset), market_id(args.asset, endpoint.tier), dry_run=args.dry_run)
 if args.dry_run:
     print(f"DRY RUN OK: {args.tier} {args.asset} would pay {receipt.amount} units "
           f"(${receipt.amount / 1e6:.2f}) from {receipt.payer}; nothing sent.")

@@ -80,8 +80,10 @@ def status() -> dict:
         "daily_budget_usd": _usd(limits.daily) if limits else None,
         "remaining_today_usd": _usd(max(limits.daily - spent, 0)) if limits else None,
         "per_run_budget_usd": _usd(limits.per_run) if limits else None,
+        "per_market_budget_usd": _usd(limits.per_market) if limits else None,  # per (asset, tier) per UTC day
         "max_per_call_usd": _usd(expected.MAX_PRICE_PER_CALL),
         "config_error": config_error,
+        "ledger_error": guardrails.ledger_error(),  # bad data/payments.jsonl: spending blocked
     }
 
 
@@ -108,7 +110,7 @@ def payments(limit: int = 50) -> list[dict]:
             "status": r["status"],
             "tier": tier.value if (tier := tier_for_url(r.get("url"))) else "unknown",
             "amount_usd": _usd(r.get("amount", 0)),
-            "event_id": r.get("event_id"),
+            "market": r.get("market"),  # e.g. "ETH-smart_money"; None on rows from before markets
             "tx_hash": r.get("tx_hash"),
             "tx_url": _BASESCAN_TX + r["tx_hash"] if r.get("tx_hash") else None,
             "detail": r.get("detail"),

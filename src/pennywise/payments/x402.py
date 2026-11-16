@@ -40,10 +40,26 @@ def decode_payment_required(resp: httpx.Response) -> dict:
     return _b64_json(raw)
 
 
-def decode_payment_response(resp: httpx.Response) -> dict:
-    """Settlement result ({success, transaction, network, payer}); {} if the header is absent."""
+def decode_payment_response(resp: httpx.Response) -> dict | None:
+    """Settlement result ({success, transaction, network, payer}).
+
+    {} if the header is absent; None if it is there but unreadable (bad base64 or
+    JSON, or not an object). Never raises: by now the payment is already signed.
+    """
     raw = resp.headers.get("payment-response")
-    return _b64_json(raw) if raw else {}
+    if not raw:
+        return {}
+    try:
+        settlement = _b64_json(raw)
+    except ValueError:  # binascii.Error, JSONDecodeError and UnicodeDecodeError are ValueErrors
+        return None
+    return settlement if isinstance(settlement, dict) else None
+
+
+def settlement_tx_hash(settlement: dict | None) -> str | None:
+    """The settlement's transaction hash, if it is a string."""
+    tx_hash = (settlement or {}).get("transaction")
+    return tx_hash if isinstance(tx_hash, str) else None
 
 
 def base_offer(payment_required: dict) -> dict | None:
@@ -74,6 +90,11 @@ def check_offer(offer: dict, expected_price: int) -> list[str]:
     if price > expected.MAX_PRICE_PER_CALL:
         problems.append(f"price {price} exceeds hard cap {expected.MAX_PRICE_PER_CALL}")
     return problems
+
+
+def address_of(private_key: str) -> str:
+    """The wallet address for a private key (no signing, no network)."""
+    return Account.from_key(private_key).address
 
 
 def sign_payment(payment_required: dict, offer: dict, private_key: str) -> tuple[str, str]:

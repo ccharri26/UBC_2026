@@ -65,6 +65,7 @@ def spread(n_per_asset: int = 500) -> dict[Tier, dict[float, float]]:
     """Share of stub readings nearest each SCENARIOS point, per Tier (for comparing with info/value.py)."""
     from datetime import datetime, timedelta, timezone
 
+    from .bodies import NATIVE_TOKENS
     from .stub import stub_signals
 
     start = datetime(2026, 11, 1, tzinfo=timezone.utc)
@@ -72,9 +73,9 @@ def spread(n_per_asset: int = 500) -> dict[Tier, dict[float, float]]:
     out: dict[Tier, dict[float, float]] = {}
     for tier in Tier:
         counts = dict.fromkeys(points, 0)
-        for asset in ("ETH", "SOL"):
+        for asset in NATIVE_TOKENS:  # paid assets only (MVP: ETH)
             for m in range(n_per_asset):
                 r = reading(stub_signals(asset, tier, start + timedelta(minutes=m)))
                 counts[min(points, key=lambda p: abs(p - r))] += 1
-        out[tier] = {p: c / (2 * n_per_asset) for p, c in counts.items()}
+        out[tier] = {p: c / (len(NATIVE_TOKENS) * n_per_asset) for p, c in counts.items()}
     return out

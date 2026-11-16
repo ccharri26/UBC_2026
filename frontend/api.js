@@ -21,13 +21,13 @@ async function request(path, options = {}) {
 
 // { kill_switch (effective: true = no spending), env_lock (KILL_SWITCH in .env), dashboard_stopped, stub_mode, paused_after_failures,
 //   wallet_address, spent_today_usd, daily_budget_usd, remaining_today_usd,
-//   per_run_budget_usd, max_per_call_usd, config_error }
+//   per_run_budget_usd, per_market_budget_usd, max_per_call_usd, config_error, ledger_error (string or null: bad payments ledger, spending blocked) }
 export const getStatus = () => request("/status");
 
 // { address, usdc }
 export const getWallet = () => request("/wallet");
 
-// [{ at, status: "settled"|"failed"|"pending", tier, amount_usd, event_id, tx_hash, tx_url, detail }]
+// [{ at, status: "settled"|"failed"|"pending", tier, amount_usd, market, tx_hash, tx_url, detail }]
 export const getPayments = (limit = 50) => request(`/payments?limit=${limit}`);
 
 // { mode: "stub"|"live", signals: [NansenSignals + cost_usd, horizons], errors: [...] }

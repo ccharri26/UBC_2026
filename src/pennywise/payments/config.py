@@ -43,7 +43,7 @@ def usd_to_units(usd: str) -> int:
 
 @dataclass(frozen=True)
 class Limits:
-    per_event: int  # USDC base units
+    per_market: int  # USDC base units, per (asset, tier) per UTC day
     per_run: int
     daily: int
     kill_switch: bool
@@ -67,7 +67,7 @@ def load_limits() -> Limits:
         return units
 
     return Limits(
-        per_event=budget("BUDGET_PER_MARKET_USD"),
+        per_market=budget("BUDGET_PER_MARKET_USD"),
         per_run=budget("BUDGET_PER_RUN_USD"),
         daily=budget("BUDGET_DAILY_USD"),
         # The hand-set master lock. Anything other than an explicit "false" counts as ON: fail closed.

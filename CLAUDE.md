@@ -39,7 +39,7 @@ Python + FastAPI, packaged as `src/pennywise/`, with one folder per step of the 
 - Every spending limit is plain code that runs **before** a payment is signed. The LLM may trigger purchases and propose trades only through tools that call that code; it must never be able to raise a limit, bypass a guardrail, pick a trade size, or skip human approval.
 - Human approval for large spends (planned, not built yet) must be enforced in `payments/` before signing, not in the LLM tools.
 - Payments only to the official Nansen host (`api.nansen.ai`) and its listed endpoints, to the expected pay-to address, in USDC on Base.
-- Hard cap of $0.05 per call, plus per-market, per-run and daily budgets; a price-drift check (every fresh 402 offer must match the price pinned in `payments/expected.py`; `/.well-known/x402` lists no prices); a kill switch; a pause after repeated payment failures.
+- Hard cap of $0.05 per call, plus per-market (one (asset, tier), e.g. `ETH-smart_money`, per UTC day), per-run and daily budgets; a price-drift check (every fresh 402 offer must match the price pinned in `payments/expected.py`; `/.well-known/x402` lists no prices); a kill switch; a pause after repeated payment failures.
 - Reduce Nansen responses to numbers before the LLM sees them (prompt-injection defence).
 - Trades default to shadow mode. All x402 payments go to the real Nansen API. The wallet holds about $5 USDC at most.
 

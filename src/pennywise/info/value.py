@@ -11,7 +11,7 @@ This only recommends. Payments go through payments/, whose guardrails have the f
 from dataclasses import dataclass
 
 from pennywise.forecast.informed import informed_prob
-from pennywise.nansen import Tier, is_cached, is_supported, tier_price
+from pennywise.nansen import Tier, is_cached, is_supported, paid_but_unusable, tier_price
 from pennywise.trading.edge import MAX_CONTRACTS, call, edges
 
 # Possible Nansen readings and how likely we think each is, before buying.
@@ -45,6 +45,9 @@ class InfoDecision:
     price_usd: float
     buy: bool
     reason: str
+    # buy=True only because the data was already cached: the agent must read the cache
+    # and never buy for this decision (the price it was checked against was $0).
+    from_cache: bool = False
 
 
 def best_trade_profit(
@@ -92,8 +95,11 @@ def decide(
     if not quotes:
         return InfoDecision(asset, tier, 0.0, price, False, "no two-sided contracts")
     value = value_of_information(quotes, spot, minute_vol, tier)
+    if not cached and paid_but_unusable(asset, tier):
+        # get_signals won't rebuy this slot, so don't plan on data from it.
+        return InfoDecision(asset, tier, value, price, False, "already paid this slot, no usable data")
     if cached:
-        return InfoDecision(asset, tier, value, price, True, "already cached, free")
+        return InfoDecision(asset, tier, value, price, True, "already cached, free", from_cache=True)
     if value > price:
         return InfoDecision(asset, tier, value, price, True, "worth more than it costs")
     return InfoDecision(asset, tier, value, price, False, "not worth its price")

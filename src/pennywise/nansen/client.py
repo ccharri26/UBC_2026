@@ -7,6 +7,9 @@ Purchases are cached so one paid call serves every Contract that needs it:
 Paid results are also saved to data/nansen_cache.json (store.py): a restart reuses
 them, and other processes (the dashboard API) can see them. Stub results stay in memory.
 
+A slot that was paid for but gave nothing usable (bad response, or a payment that failed
+after money left) is remembered until it would have expired, and not bought again.
+
 Callers handle one error: NansenUnavailable means "use the baseline only".
 Set NANSEN_STUB=true to get fake signals with no network and no spending.
 """
@@ -42,7 +45,7 @@ class NansenUnavailable(RuntimeError):
 
 
 class UnsupportedAsset(NansenUnavailable, ValueError):
-    """Asset has no paid Nansen data (only NATIVE_TOKENS do: ETH and SOL). Nothing spent."""
+    """Asset has no paid Nansen data (only NATIVE_TOKENS do; MVP: ETH). Nothing spent."""
 
 
 def _utc_now() -> datetime:
@@ -56,10 +59,13 @@ def stub_mode() -> bool:
 
 # cache key -> (expires_at, signals). Keys: (stub, asset, tier) or (stub, asset, tier, hour_start).
 _cache: dict[tuple, tuple[datetime, NansenSignals]] = {}
+# Same keys -> (expires_at, original error) for slots paid for with nothing usable back.
+# In memory only: a restart may rebuy once, within the payment budgets.
+_failed: dict[tuple, tuple[datetime, BaseException | None]] = {}
 
 
 def is_supported(asset: str) -> bool:
-    """True if Nansen sells paid data for this asset (ETH, SOL). BTC/XRP use the baseline only."""
+    """True if Nansen sells paid data for this asset (NATIVE_TOKENS; MVP: ETH). Others use the baseline only."""
     return asset in NATIVE_TOKENS
 
 
@@ -83,6 +89,11 @@ def tier_of(horizon: Horizon) -> Tier:
     return HORIZON_TIER[horizon]
 
 
+def market_id(asset: str, tier: Tier) -> str:
+    """The market a purchase is budgeted under, e.g. "ETH-smart_money" (per-market daily budget)."""
+    return f"{asset}-{tier.value}"
+
+
 def tier_price(tier: Tier) -> int:
     """Price of one call for this Tier, in USDC base units (10_000 = $0.01)."""
     return ENDPOINTS[tier].price
@@ -93,13 +104,13 @@ def price_of(horizon: Horizon) -> int:
     return tier_price(tier_of(horizon))
 
 
-def is_cached(asset: str, tier: Tier, now: Callable[[], datetime] = _utc_now) -> bool:
-    """True if get_signals would return this asset+tier from cache right now (costs nothing). Never buys.
+def cached_result(asset: str, tier: Tier, now: Callable[[], datetime] = _utc_now) -> NansenSignals | None:
+    """The unexpired cached signals for this asset+tier, or None. Never buys.
 
     Live mode also checks data/nansen_cache.json, so purchases by other processes count.
     """
     if not is_supported(asset):
-        return False
+        return None
     t, stub = now(), stub_mode()
     slot, _ = _cache_slot(asset, tier, t)
     key = (stub, *slot)
@@ -107,7 +118,22 @@ def is_cached(asset: str, tier: Tier, now: Callable[[], datetime] = _utc_now) ->
     if (hit is None or t >= hit[0]) and not stub:
         _load_from_disk(t)
         hit = _cache.get(key)
-    return hit is not None and t < hit[0]
+    return hit[1] if hit is not None and t < hit[0] else None
+
+
+def is_cached(asset: str, tier: Tier, now: Callable[[], datetime] = _utc_now) -> bool:
+    """True if get_signals would return this asset+tier from cache right now (costs nothing). Never buys."""
+    return cached_result(asset, tier, now) is not None
+
+
+def paid_but_unusable(asset: str, tier: Tier, now: Callable[[], datetime] = _utc_now) -> bool:
+    """True if this slot was already paid for with nothing usable back, so get_signals won't rebuy it."""
+    if not is_supported(asset):
+        return False
+    t = now()
+    slot, _ = _cache_slot(asset, tier, t)
+    bad = _failed.get((stub_mode(), *slot))
+    return bad is not None and t < bad[0]
 
 
 def _cache_slot(asset: str, tier: Tier, now: datetime) -> tuple[tuple, datetime]:
@@ -138,10 +164,20 @@ def get_signals(asset: str, horizon: Horizon, now: Callable[[], datetime] = _utc
         hit = _cache.get(key)
     if hit is not None and t < hit[0]:
         return hit[1]
+    bad = _failed.get(key)
+    if bad is not None and t < bad[0]:
+        # Chain the original cause so callers can still tell a bad response from a failed payment.
+        raise NansenUnavailable(f"{asset} {tier.value} already paid this slot with nothing usable; not rebuying",
+                                spent=False) from bad[1]
     if stub:
         signals = stub_signals(asset, tier, t)
     else:
-        signals = _purchase(asset, tier)
+        try:
+            signals = _purchase(asset, tier)
+        except NansenUnavailable as e:
+            if e.spent:  # money left but nothing to cache: don't pay again for this slot
+                _failed[key] = (expires_at, e.__cause__)
+            raise
         store.save(slot, expires_at, signals, t)
     _cache[key] = (expires_at, signals)
     return signals
@@ -170,11 +206,12 @@ def cached_signals(now: Callable[[], datetime] = _utc_now) -> list[NansenSignals
 def _purchase(asset: str, tier: Tier) -> NansenSignals:
     """Buy fresh data from Nansen and reduce it to numbers. The only place money is spent.
 
-    Every failure becomes NansenUnavailable; nothing is cached on error.
+    Every failure becomes NansenUnavailable; nothing is cached on error (get_signals
+    remembers spent failures in _failed instead).
     """
     endpoint = ENDPOINTS[tier]
     try:
-        receipt = pay(endpoint.url, build_body(endpoint, asset))
+        receipt = pay(endpoint.url, build_body(endpoint, asset), market_id(asset, tier))
     except PaymentRefused as e:
         raise NansenUnavailable(f"payment refused: {e}", spent=False) from e
     except PaymentFailed as e:

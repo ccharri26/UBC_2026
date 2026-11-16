@@ -23,8 +23,9 @@ Call = Literal["BUY YES", "BUY NO", "pass"]
 Side = Literal["YES", "NO"]
 # Where the forecast's Nansen data came from: bought this cycle, already cached, or none.
 Source = Literal["paid", "cached", "none"]
-# Why there was no data when we wanted it (NansenUnavailable), if that happened.
-NansenError = Literal["unsupported", "refused", "failed", "bad_response"]
+# Why there was no data when we wanted it: NansenUnavailable, or "expired" when cached
+# data the decision relied on expired before it was read (nothing is bought then).
+NansenError = Literal["unsupported", "refused", "failed", "bad_response", "expired"]
 Mode = Literal["shadow", "sandbox"]
 
 _TICKER = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,63}$")
@@ -84,7 +85,7 @@ class InfoRecord:
     source: Source  # where the data used for `informed` came from
     cost_usd: float  # actually paid this cycle (0 for cached/none/stub). Spend totals come from payments.jsonl
     reading: float | None = None  # nansen.reading(), [-1, 1]; None if no data
-    error: NansenError | None = None  # set if we wanted data but got NansenUnavailable
+    error: NansenError | None = None  # set if we wanted data but got none (see NansenError)
     spent: bool = False  # with `error`: money left the wallet anyway
 
     def __post_init__(self) -> None:

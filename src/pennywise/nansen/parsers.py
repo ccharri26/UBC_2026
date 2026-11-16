@@ -59,11 +59,15 @@ def _rows(raw: object) -> list[dict]:
 
 
 def parse_flow_intelligence(raw: object, asset: str, fetched_at: datetime, cost_usdc: int) -> NansenSignals:
-    """Basic tier. The response has one row for the requested token."""
+    """Basic tier. The response has one row for the requested token.
+
+    No rows means no flows were recorded in the window: every field is None, as with
+    smart-money/netflow. More than one row isn't what we asked for, so that's an error.
+    """
     rows = _rows(raw)
-    if len(rows) != 1:
-        raise NansenResponseError(f"flow-intelligence: expected 1 row, got {len(rows)}")
-    row = rows[0]
+    if len(rows) > 1:
+        raise NansenResponseError(f"flow-intelligence: expected at most 1 row, got {len(rows)}")
+    row = rows[0] if rows else {}
     return NansenSignals(
         asset=asset,
         tier=Tier.BASIC,

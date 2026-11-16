@@ -1,7 +1,8 @@
 """Fetch signals the way the agent does, through get_signals (cache, guardrails, parsers).
 
     uv run python -m pennywise.nansen                         # ETH 1H; needs NANSEN_STUB=true
-    uv run python -m pennywise.nansen --asset SOL --horizon 05M
+    uv run python -m pennywise.nansen --asset ETH --horizon 05M
+    uv run python -m pennywise.nansen --asset BTC             # unsupported asset: shows the fallback
     uv run python -m pennywise.nansen --live ...              # stub off: REAL payment
     uv run python -m pennywise.nansen --spread                # how stub readings spread over [-1, 1]
 """
@@ -9,10 +10,10 @@
 import argparse
 from dataclasses import fields
 
-from . import Horizon, NansenUnavailable, get_signals, reading, stub_mode
+from . import Horizon, NansenUnavailable, get_signals, reading, stub_mode, supported_assets
 
 parser = argparse.ArgumentParser(prog="python -m pennywise.nansen")
-parser.add_argument("--asset", default="ETH", help="ETH or SOL (BTC/XRP show the fallback)")
+parser.add_argument("--asset", default="ETH", help=f"{' or '.join(supported_assets())} (any other asset shows the fallback)")
 parser.add_argument("--horizon", default="1H", choices=[h.value for h in Horizon])
 parser.add_argument("--live", action="store_true", help="allow a real payment when NANSEN_STUB is not true")
 parser.add_argument("--spread", action="store_true", help="print how stub readings spread (free, no network)")

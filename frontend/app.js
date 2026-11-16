@@ -81,6 +81,7 @@ function renderControls(s) {
     el("div", { class: "row" }, el("span", {}, "Per-run budget"), el("span", { class: "num" }, usd(s.per_run_budget_usd))),
     el("div", { class: "row" }, el("span", {}, "Paused after failures"), s.paused_after_failures ? badge("yes", "bad") : badge("no", "good")),
     s.config_error ? el("div", { class: "badge bad" }, `Config: ${s.config_error}`) : null,
+    s.ledger_error ? el("div", { class: "badge bad" }, `Ledger: ${s.ledger_error}`) : null,
     s.env_lock ? el("div", { class: "muted" }, "Locked in .env: set KILL_SWITCH=false there by hand to allow spending.") : null,
     button,
   );

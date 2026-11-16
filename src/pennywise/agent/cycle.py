@@ -30,6 +30,7 @@ from pennywise.nansen import (
     NansenUnavailable,
     Tier,
     UnsupportedAsset,
+    cached_result,
     get_signals,
     horizons_for,
     is_cached,
@@ -42,7 +43,7 @@ from pennywise.trading.edge import call, edges
 from pennywise.trading.shadow import pick_trades
 
 Source = Literal["paid", "cached", "none"]
-NansenError = Literal["unsupported", "refused", "failed", "bad_response"]
+NansenError = Literal["unsupported", "refused", "failed", "bad_response", "expired"]
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,13 @@ def fetch_reading(asset: str, tier: Tier, d: InfoDecision) -> NansenResult:
     """Get Nansen data for one group if decide() said to, else NO_DATA. Never raises NansenUnavailable."""
     if not d.buy:
         return NO_DATA
+    if d.from_cache:
+        # decide() priced this at $0 because it was cached, so never buy here. If the entry
+        # expired since, use the baseline this cycle; the next cycle decides at the real price.
+        signals = cached_result(asset, tier)
+        if signals is None:
+            return NansenResult("none", None, error="expired")
+        return NansenResult("cached", reading(signals))
     was_cached = is_cached(asset, tier)  # check before get_signals(), which fills the cache
     try:
         signals = get_signals(asset, horizons_for(tier)[0])  # any horizon of the tier buys the same data
