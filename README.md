@@ -73,3 +73,51 @@ Entered in the **Agentic Payments and AI** track of the University Blockchain Co
 Andrew: Gemini market data, baseline math, trade/abstain logic, scoring
 
 Chase: x402 wallet and Nansen calls, guardrails and voice approval, dashboard
+
+## INTEGRATE LLM
+
+The payment side fits the track well, but the agent's decisions are currently plain math: no LLM decides anything, and the narrator isn't built yet. This section is the plan for putting an LLM in the loop without weakening any safety limit.
+
+### Where we stand against the track
+
+| Track item | Status |
+|---|---|
+| Agent pays per request (x402) | **Done.** Real USDC on Base, settled on-chain |
+| Budgets and allowlists | **Done.** Per-call cap, run and daily budgets, host and endpoint allowlist, price pinning, kill switch, pause after failures |
+| Human approval for large transactions | **Missing.** Voice approval is planned but not built |
+| LLMs that read from and act on the blockchain safely | **Missing.** No LLM is in the loop |
+| Marketplace or service that agents pay for | Not attempted (optional, since the track only says to "aim" for these) |
+| Document the decision loop and safety limits | Partly done here; needs a proper write-up |
+
+### 1. The LLM is the agent; code is the guardrail
+
+The agent cycle becomes a tool-use loop. The LLM gets tools like these:
+
+- `scan_markets`: the Gemini snapshot plus baseline odds
+- `estimate_data_value(asset, tier)`: the existing value-of-information math, given as advice
+- `buy_nansen_data(asset, tier)`: calls `get_signals`, so it goes through `pay()` and every guardrail
+- `wallet_status`: balance, spent today, budget left
+- `propose_trade(event, side)`: code checks the edge, picks the size, and enforces one trade per Event
+- `request_approval(...)`: see section 2
+
+The LLM decides what to buy and why. Code still decides whether a payment can be signed. Every time the LLM goes against the value-of-information check is logged, so scoring can compare whether the LLM or the math rule spent money better.
+
+This changes the LLM's role. It used to only explain decisions and veto or shrink trades. Now it may trigger purchases, but only through tools that enforce every limit, and it can never raise or bypass a limit. The current deterministic cycle stays as a fallback mode (for example, if the LLM API is down during the demo).
+
+### 2. Human approval for big spends
+
+An approval step in `payments/guardrails.py`, before signing. Any payment above a set amount (for example a $0.05 Smart Money call, or anything once daily spend passes 50%) waits until a human approves it from the dashboard or by voice. If no one approves it, it is refused. It lives in `payments/`, not in the LLM tools, so the LLM cannot skip it.
+
+### 3. The LLM reads the chain safely
+
+- A tool that confirms each x402 payment on Base over RPC: the USDC transfer to Nansen's pay-to address actually happened, for the right amount.
+- The wallet's USDC balance as a tool.
+- The existing prompt-injection defence: Nansen data reaches the LLM only as numbers, so text inside a response cannot give it instructions.
+
+### 4. Narrator
+
+The LLM explains each cycle in a few sentences ("bought ETH Smart Money because…, skipped SOL Basic because…"), shown on the dashboard. It reads only the decision log, which holds numbers and fixed labels.
+
+### 5. Stretch: sell our forecasts over x402
+
+Put PennyWise's informed probabilities behind our own x402 paywall, on Base Sepolia testnet. The agent then both buys data and sells insight, which covers the track's marketplace objective. Only if sections 1–4 are done first.
