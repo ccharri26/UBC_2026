@@ -1,15 +1,16 @@
-"""Pull active Gemini crypto prediction Events and print their Contracts.
+"""Pull active Gemini crypto prediction Events: fetch_snapshot() for the agent, main() to print.
 
 Run: uv run python -m pennywise.markets.gemini
 """
 
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 import httpx
 
 from pennywise.forecast.baseline import blend, minute_volatility, prob_above, typical_move
 from pennywise.info.value import Quote, decide
-from pennywise.nansen import Horizon, tier_of
+from pennywise.nansen import Horizon, Tier, tier_of
 from pennywise.trading.edge import call, edges
 
 EVENTS_URL = "https://api.gemini.com/v1/prediction-markets/events"
@@ -203,48 +204,81 @@ def print_event(event: dict, now: datetime, spot: float | None, minute_vol: floa
         )
 
 
-def main() -> None:
-    now = datetime.now(timezone.utc)
+@dataclass(frozen=True)
+class MarketSnapshot:
+    """Everything one agent cycle needs from Gemini, fetched at `at`. All free to fetch."""
+
+    at: datetime
+    spots: dict[str, float]  # current Gemini price per asset, USD
+    vols: dict[str, float]  # typical move per minute per asset (0.0012 = 0.12%/min)
+    # Open, two-sided Contracts per (asset, tier): one Nansen purchase covers each group.
+    # Only groups whose asset has both a spot price and a volatility.
+    groups: dict[tuple[str, Tier], list[Quote]]
+    # Raw Gemini Events, for printing only. Free text from Gemini: never log these.
+    events: list[dict] = field(repr=False, default_factory=list)
+
+
+def fetch_snapshot() -> MarketSnapshot:
+    """Fetch Events, spot prices and volatility, and group the quotes by Nansen purchase.
+
+    `mins_left` on each Quote is measured from `at`, so use the snapshot right away.
+    """
     events = sorted(
         (e for e in fetch_active_events() if wanted(e) and has_strikes(e)),
         key=lambda e: (e["series"][:3], e["expiryDate"]),
     )
     spots = fetch_spot_prices()
     vols = {asset: fetch_minute_volatility(asset) for asset in ASSETS}
-    print(f"{len(events)} active events at {now:%Y-%m-%d %H:%M} UTC")
+    at = datetime.now(timezone.utc)
+    groups = {
+        (asset, tier): quotes
+        for (asset, tier), quotes in quotes_by_purchase(events, at).items()
+        if asset in spots and asset in vols
+    }
+    return MarketSnapshot(at, spots, vols, groups, events)
+
+
+def main() -> None:
+    snap = fetch_snapshot()
+    print(f"{len(snap.events)} active events at {snap.at:%Y-%m-%d %H:%M} UTC")
     print(
         "typical daily move (last 7d, recent weighted): "
-        + "  ".join(f"{a} {typical_move(v, 1440):.2%}" for a, v in vols.items())
+        + "  ".join(f"{a} {typical_move(v, 1440):.2%}" for a, v in snap.vols.items())
     )
-    for event in events:
+    for event in snap.events:
         asset = asset_of(event)
-        print_event(event, now, spots.get(asset), vols.get(asset))
-    print_info_decisions(events, now, spots, vols)
+        print_event(event, snap.at, snap.spots.get(asset), snap.vols.get(asset))
+    print_info_decisions(snap)
 
 
-def quotes_by_purchase(events: list[dict], now: datetime) -> dict[tuple, list[Quote]]:
-    """Two-sided Contracts grouped by (asset, tier): one Nansen purchase covers each group."""
-    groups: dict[tuple, list[Quote]] = {}
+def quotes_by_purchase(events: list[dict], now: datetime) -> dict[tuple[str, Tier], list[Quote]]:
+    """Open, two-sided Contracts grouped by (asset, tier): one Nansen purchase covers each group.
+
+    Every (asset, tier) seen gets a group, even an empty one, so decide() can say why it skipped.
+    """
+    groups: dict[tuple[str, Tier], list[Quote]] = {}
     for event in events:
         asset = asset_of(event)
         tier = tier_of(Horizon(event["series"][len(asset):]))
         mins_left = (parse_time(event["expiryDate"]) - now).total_seconds() / 60
+        group = groups.setdefault((asset, tier), [])
+        if mins_left <= 0:
+            continue  # expired but not yet marked closed
         for c in event["contracts"]:
+            if c.get("marketState") != "open":
+                continue
             p = c.get("prices") or {}
             bid, ask = to_float(p.get("bestBid")), to_float(p.get("bestAsk"))
             value = (c.get("strike") or {}).get("value")
-            group = groups.setdefault((asset, tier), [])
             if bid is not None and ask is not None and value is not None:
                 group.append(Quote(event["ticker"], float(value), mins_left, bid, ask))
     return groups
 
 
-def print_info_decisions(
-    events: list[dict], now: datetime, spots: dict[str, float], vols: dict[str, float]
-) -> None:
+def print_info_decisions(snap: MarketSnapshot) -> None:
     print("\nBuy Nansen data?  (value = expected extra profit from knowing the reading)")
-    for (asset, tier), quotes in sorted(quotes_by_purchase(events, now).items()):
-        d = decide(asset, tier, quotes, spots[asset], vols[asset])
+    for (asset, tier), quotes in sorted(snap.groups.items()):
+        d = decide(asset, tier, quotes, snap.spots[asset], snap.vols[asset])
         verdict = "BUY" if d.buy else "skip"
         print(
             f"  {asset:<4} {tier.value:<12} value ${d.value_usd:.3f} vs price ${d.price_usd:.2f}"

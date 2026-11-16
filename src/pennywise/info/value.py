@@ -85,7 +85,7 @@ def decide(
     asset: str, tier: Tier, quotes: list[Quote], spot: float, minute_vol: float
 ) -> InfoDecision:
     if not is_supported(asset):
-        return InfoDecision(asset, tier, 0.0, tier_price(tier) / 1_000_000, False, "no Nansen coverage")
+        return InfoDecision(asset, tier, 0.0, tier_price(tier) / 1_000_000, False, "no nansen coverage")
     # Fresh data already in the cache costs nothing more, so always use it.
     cached = is_cached(asset, tier)
     price = 0.0 if cached else tier_price(tier) / 1_000_000  # USDC base units -> dollars
