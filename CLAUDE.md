@@ -15,10 +15,11 @@ Run from the repo root (Python via uv). Set `NANSEN_STUB=true` in `.env` to get 
 - `uv run python -m pennywise.payments --dry-run [--tier basic|smart_money] [--asset ETH|SOL]`: check guardrails and signing without paying. `--live` makes a real payment.
 - `uv run python -m pennywise.markets.gemini`: free scan of active Gemini Events with baseline odds and the buy/skip decision per (asset, tier).
 - `uv run python -m pennywise.agent.cycle`: one deterministic agent cycle (snapshot → Nansen → forecast → shadow trades → `data/decisions.jsonl`). Keep `NANSEN_STUB=true` unless a live run is intended.
+- `uv run python -m pennywise.agent.grok`: one tiny Grok call to check `GROK_API_KEY` and `GROK_MODEL`.
 
 ### LLM integration (planned, see README "INTEGRATE LLM")
 
-The LLM becomes the agent: a tool-use loop where it calls tools (`scan_markets`, `estimate_data_value`, `buy_nansen_data`, `wallet_status`, `propose_trade`, `request_approval`) and decides what to buy and trade. Tools are thin wrappers over existing code, so every purchase still goes through `get_signals` → `pay()` and every guardrail; trade size and the one-trade-per-Event rule stay in code. Log whenever the LLM goes against the value-of-information check. Keep the deterministic `agent/cycle.py` as a fallback mode. Also planned: human approval for large spends (in `payments/`), an on-chain check that each x402 payment settled, a narrator over the decision log, and (stretch) selling our forecasts over x402 on Base Sepolia.
+The LLM is **Grok** (xAI), called through the `openai` SDK at `https://api.x.ai/v1`; the client and settings (`GROK_API_KEY`, `GROK_MODEL`, `AGENT_MODE=llm|rule`, default rule) live in `agent/grok.py`. The LLM becomes the agent: a tool-use loop where it calls tools (`scan_markets`, `estimate_data_value`, `buy_nansen_data`, `wallet_status`, `propose_trade`, `request_approval`) and decides what to buy and trade. Tools are thin wrappers over existing code, so every purchase still goes through `get_signals` → `pay()` and every guardrail; trade size and the one-trade-per-Event rule stay in code. Log whenever the LLM goes against the value-of-information check. Keep the deterministic `agent/cycle.py` as a fallback mode. Also planned: human approval for large spends (in `payments/`), an on-chain check that each x402 payment settled, a narrator over the decision log, and (stretch) selling our forecasts over x402 on Base Sepolia.
 
 ### Decision pipeline
 

@@ -6,6 +6,7 @@ dependencies = [
     "eth-account>=0.14.0",
     "fastapi[standard]>=0.162.7",
     "httpx>=0.28",
+    "openai>=3.51.0",
 ]
 
 [build-system]
