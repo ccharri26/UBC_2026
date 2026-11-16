@@ -20,6 +20,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from pennywise.decisions import read_decisions, read_outcomes
 from pennywise.nansen import (
     Horizon,
     NansenSignals,
@@ -33,6 +34,7 @@ from pennywise.nansen import (
 )
 from pennywise.payments import control, expected, guardrails, wallet
 from pennywise.payments.config import ROOT, ConfigError, env, load_limits
+from pennywise.scoring.score import trade_pnl
 
 app = FastAPI(title="PennyWise", description="Read-only views of payments and Nansen signals, plus a kill switch.")
 
@@ -141,6 +143,32 @@ def signals() -> dict:
                 seen.add(id(s))
                 out.append(_signals_dict(s))
     return {"mode": "stub", "signals": out, "errors": errors}
+
+
+@app.get("/api/decisions")
+def decisions(limit: int = 50) -> dict:
+    """Decision log (data/decisions.jsonl), newest first: one row per (asset, tier) per cycle.
+
+    Each trade gets `result` ("won", "lost", or null until its Event settles) and `pnl_usd`.
+    `llm_override` is true when the LLM bought data the value check said to skip.
+    `skipped` counts log lines that failed to load.
+    """
+    loaded = read_decisions(limit=max(limit, 0))
+    outcomes = {o.event: o for o in read_outcomes().rows}
+    out = []
+    for row in reversed(loaded.rows):
+        d = row.to_dict()
+        d["llm_override"] = row.decided_by == "llm" and not row.info.buy and row.info.source != "none"
+        for t, td in zip(row.trades, d["trades"]):
+            o = outcomes.get(t.event)
+            yes = o.result_for(t.strike) if o else None
+            if yes is None:
+                td["result"], td["pnl_usd"] = None, None
+            else:
+                td["result"] = "won" if (t.side == "YES") == yes else "lost"
+                td["pnl_usd"] = round(trade_pnl(t, yes), 4)
+        out.append(d)
+    return {"rows": out, "skipped": loaded.skipped}
 
 
 class KillSwitch(BaseModel):

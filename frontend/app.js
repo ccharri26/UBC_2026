@@ -2,7 +2,7 @@
 // from api.js and redraws one panel, so each maps 1:1 to a future React component.
 // All text from the API goes in via textContent (never innerHTML).
 
-import { getPayments, getSignals, getStatus, getWallet, setKillSwitch } from "./api.js";
+import { getDecisions, getPayments, getSignals, getStatus, getWallet, setKillSwitch } from "./api.js";
 
 const FAST_MS = 5_000; // status, payments, signals
 const SLOW_MS = 30_000; // wallet balance (an RPC call)
@@ -133,6 +133,47 @@ function renderPayments(rows) {
   fill("payments-body", el("div", { class: "table-wrap" }, el("table", {}, el("thead", {}, head), el("tbody", {}, body))));
 }
 
+function renderDecisions(data) {
+  if (!data.rows.length) {
+    fill("decisions-body", el("div", { class: "muted" }, "No decisions yet. Run a cycle (pennywise.agent.cycle or pennywise.agent.llm)."));
+    return;
+  }
+  const tierName = (t) => (t === "smart_money" ? "Smart Money" : "Basic");
+  const dataCell = (r) => {
+    const i = r.info;
+    const verdict = i.buy ? badge("buy", "good") : badge("skip", "warn");
+    const got = i.source === "paid" ? ` paid ${usd(i.cost_usd)}` : i.source === "cached" ? " cached" : "";
+    return [verdict, ` ${i.reason}${got}`,
+      r.llm_override ? [" ", badge("LLM OVERRIDE", "warn")] : null,
+      i.error ? [" ", badge(i.error, "bad")] : null];
+  };
+  const tradeCell = (r) => {
+    if (!r.trades.length) return el("span", { class: "muted" }, "—");
+    return r.trades.map((t) => el("div", {},
+      `${t.side} ${t.contracts}× ${t.event} @ ${t.strike} for ${usd(t.price)} `,
+      t.result ? badge(`${t.result} ${usd(t.pnl_usd)}`, t.result === "won" ? "good" : "bad") : badge("open", "warn"),
+    ));
+  };
+  const head = el("tr", {}, ["Time", "Cycle", "Asset", "Tier", "By", "Data decision", "Value / price", "Reading", "Contracts", "Trades"]
+    .map((h) => el("th", { class: ["Cycle", "Value / price", "Reading", "Contracts"].includes(h) ? "num" : "" }, h)));
+  const body = data.rows.map((r) => el("tr", {},
+    el("td", {}, time(r.at), r.stub ? [" ", badge("stub", "warn")] : null),
+    el("td", { class: "num" }, r.cycle),
+    el("td", {}, r.asset),
+    el("td", {}, tierName(r.tier)),
+    el("td", {}, r.decided_by === "llm" ? badge("LLM", "good") : "rule"),
+    el("td", {}, dataCell(r)),
+    el("td", { class: "num" }, `${usd(r.info.value_usd, 3)} / ${usd(r.info.price_usd)}`),
+    el("td", { class: "num" }, r.info.reading === null ? "—" : r.info.reading.toFixed(2)),
+    el("td", { class: "num" }, r.quotes.length),
+    el("td", {}, tradeCell(r)),
+  ));
+  fill("decisions-body",
+    el("div", { class: "table-wrap" }, el("table", {}, el("thead", {}, head), el("tbody", {}, body))),
+    data.skipped ? el("div", { class: "muted" }, `${data.skipped} log lines could not be read`) : null,
+  );
+}
+
 // --- actions -----------------------------------------------------------------
 async function toggle(on) {
   if (!on && !confirm("Resume spending real USDC on Nansen data?")) return;
@@ -154,12 +195,14 @@ function renderAll() {
 }
 
 async function refreshFast() {
-  const [status, payments, signals] = await Promise.allSettled([getStatus(), getPayments(), getSignals()]);
+  const [status, payments, signals, decisions] = await Promise.allSettled(
+    [getStatus(), getPayments(), getSignals(), getDecisions()]);
   if (status.status === "fulfilled") lastStatus = status.value;
   renderAll();
   if (payments.status === "fulfilled") renderPayments(payments.value);
   if (signals.status === "fulfilled") renderSignals(signals.value);
-  const failed = [status, payments, signals].filter((r) => r.status === "rejected");
+  if (decisions.status === "fulfilled") renderDecisions(decisions.value);
+  const failed = [status, payments, signals, decisions].filter((r) => r.status === "rejected");
   showError(failed.length ? `Can't reach the API: ${failed[0].reason.message}` : "");
   document.getElementById("updated").textContent = `Updated ${new Date().toLocaleTimeString()}`;
 }

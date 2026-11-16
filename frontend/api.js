@@ -33,6 +33,12 @@ export const getPayments = (limit = 50) => request(`/payments?limit=${limit}`);
 // { mode: "stub"|"live", signals: [NansenSignals + cost_usd, horizons], errors: [...] }
 export const getSignals = () => request("/signals");
 
+// { rows: [DecisionRow, newest first: { at, cycle, stub, asset, tier, spot, minute_vol, decided_by, llm_override,
+//   info: { value_usd, price_usd, buy, reason, source, cost_usd, reading, error, spent },
+//   quotes: [...], trades: [{ event, strike, side, price, contracts, fee_usd, edge, mode, result: "won"|"lost"|null, pnl_usd }] }],
+//   skipped }
+export const getDecisions = (limit = 50) => request(`/decisions?limit=${limit}`);
+
 // on=true stops all spending. Turning it back on requires confirm=true, and fails (409)
 // while env_lock is set: only a hand edit of .env clears that.
 export const setKillSwitch = (on, confirm = false) =>
