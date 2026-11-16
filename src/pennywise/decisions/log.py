@@ -94,6 +94,8 @@ def worth_logging(row: DecisionRow, previous: DecisionRow | None) -> bool:
     """
     if previous is None or row.trades or row.info.source == "paid" or row.info.error:
         return True
+    if row.decided_by != previous.decided_by:  # so each mode's forecasts are on record for scoring
+        return True
     if (row.info.buy, row.info.source) != (previous.info.buy, previous.info.source):
         return True
     calls = lambda r: {(q.event, q.strike): q.call for q in r.quotes}  # noqa: E731

@@ -148,6 +148,7 @@ def last_rows() -> tuple[int, dict[tuple[str, str], DecisionRow]]:
 def build_row(
     snap: MarketSnapshot, cycle: int, stub: bool, asset: str, tier: Tier,
     d: InfoDecision, n: NansenResult, quotes: list[QuoteRecord], trades: list[TradeRecord],
+    decided_by: str = "rule",
 ) -> DecisionRow:
     """Step 5: one decision-log row for one (asset, tier) group. Numbers and fixed labels only."""
     info = InfoRecord(
@@ -172,6 +173,7 @@ def build_row(
         info=info,
         quotes=tuple(quotes),
         trades=tuple(trades),
+        decided_by=decided_by,
     )
 
 

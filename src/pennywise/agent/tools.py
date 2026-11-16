@@ -283,15 +283,20 @@ def wallet_status(state: CycleState) -> dict:
     }
 
 
-def finish(state: CycleState) -> dict:
-    """Write the decision log for this cycle, like run_cycle(). Not an LLM tool."""
+def finish(state: CycleState, decided_by: str = "llm") -> dict:
+    """Write the decision log for this cycle, like run_cycle(). Not an LLM tool.
+
+    Rows are labelled `decided_by` ("llm" for the Grok loop) so scoring can compare it with the rule cycle.
+    """
     logged, trades = 0, 0
     for key, d in state.decisions.items():
         asset, tier = key
         n = state.results.get(key, NO_DATA)
         group_trades = state.trades.get(key, [])
         try:
-            row = build_row(state.snap, state.cycle, state.stub, asset, tier, d, n, _quotes(state, key), group_trades)
+            row = build_row(
+                state.snap, state.cycle, state.stub, asset, tier, d, n, _quotes(state, key), group_trades, decided_by
+            )
         except RecordError as e:
             print(f"  could not log {asset} {tier.value}: {e}")
             continue

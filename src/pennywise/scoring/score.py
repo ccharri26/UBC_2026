@@ -39,8 +39,8 @@ class EventScore:
 
 
 def decided_by(row: DecisionRow) -> str:
-    """Who made the row's decisions. Rows predating the field were the rule-based cycle."""
-    return getattr(row, "decided_by", "rule")
+    """Who made the row's decisions: "rule" or "llm" (rows predating the field load as "rule")."""
+    return row.decided_by
 
 
 def brier(prob: float, yes: bool) -> float:

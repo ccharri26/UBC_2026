@@ -151,7 +151,7 @@ def run_llm_cycle(max_turns: int = MAX_TURNS) -> None:
             return
         print(f"  Grok failed mid-cycle ({type(e).__name__}); logging what was done so far")
 
-    result = finish(state)
+    result = finish(state, decided_by="llm")
     print(f"\nLogged {result['logged']} of {result['groups']} groups; trades this cycle: {result['trades']}")
     if summary:
         print(f"\nGrok: {summary}")

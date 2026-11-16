@@ -27,6 +27,8 @@ Source = Literal["paid", "cached", "none"]
 # data the decision relied on expired before it was read (nothing is bought then).
 NansenError = Literal["unsupported", "refused", "failed", "bad_response", "expired"]
 Mode = Literal["shadow", "sandbox"]
+# Who made the cycle's decisions: the deterministic cycle (rule) or the Grok tool loop (llm).
+DecidedBy = Literal["rule", "llm"]
 
 _TICKER = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,63}$")
 _REASON = re.compile(r"^[a-z0-9 ,'-]{1,60}$")
@@ -157,6 +159,7 @@ class DecisionRow:
     info: InfoRecord
     quotes: tuple[QuoteRecord, ...] = ()
     trades: tuple[TradeRecord, ...] = ()
+    decided_by: DecidedBy = "rule"  # rows written before this field existed were all rule-based
     schema: int = SCHEMA
 
     def __post_init__(self) -> None:
@@ -189,6 +192,7 @@ class DecisionRow:
             info=InfoRecord(**d["info"]),
             quotes=tuple(QuoteRecord(**q) for q in d.get("quotes", ())),
             trades=tuple(TradeRecord(**t) for t in d.get("trades", ())),
+            decided_by=d.get("decided_by", "rule"),
             schema=d.get("schema", SCHEMA),
         )
 
