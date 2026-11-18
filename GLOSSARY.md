@@ -19,3 +19,11 @@ _Avoid_: Series, duration, timeframe
 **Tier**:
 A level of paid Nansen data with a fixed price per call: Basic (5M and 15M Horizons) or Smart Money (1H Horizon).
 _Avoid_: Plan, package
+
+**Decision**:
+The agent's choice for one asset and one Tier in one pass of the agent: skip the data, reuse data already bought, or buy it, together with any trades that follow.
+_Avoid_: Action, step
+
+**Profit**:
+Settled shadow-trade winnings minus what was spent on Nansen data. LLM costs are not counted, and shadow trades are assumed to fill at the quoted price.
+_Avoid_: Return, earnings

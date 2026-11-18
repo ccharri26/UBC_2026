@@ -17,6 +17,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -34,7 +35,7 @@ from pennywise.nansen import (
 )
 from pennywise.payments import control, expected, guardrails, wallet
 from pennywise.payments.config import ROOT, ConfigError, env, load_limits
-from pennywise.scoring.score import trade_pnl
+from pennywise.scoring.score import score, trade_pnl
 
 app = FastAPI(title="PennyWise", description="Read-only views of payments and Nansen signals, plus a kill switch.")
 
@@ -171,6 +172,18 @@ def decisions(limit: int = 50) -> dict:
     return {"rows": out, "skipped": loaded.skipped}
 
 
+@app.get("/api/score")
+def score_report(include_stub: bool | None = None) -> dict:
+    """Scoring report from the decision log and data/outcomes.jsonl (see scoring/score.py).
+
+    Profit is `net_pnl_usd`: settled shadow-trade P&L minus Nansen spend. Groups: overall,
+    by_decided_by, by_tier, by_asset. `include_stub` defaults to the current NANSEN_STUB, so a
+    stub run scores its own rows (their Nansen readings are fake, so informed numbers and
+    trades on paid-data assets mean nothing). Reads local files only; the runner settles Events.
+    """
+    return score(include_stub=stub_mode() if include_stub is None else include_stub)
+
+
 class KillSwitch(BaseModel):
     on: bool  # true = stop all spending
     confirm: bool = False  # required to turn spending back on
@@ -191,7 +204,18 @@ def kill_switch(body: KillSwitch, request: Request) -> dict:
     return status()
 
 
-# The dashboard (frontend/) is served at / once it exists. Mounted last so /api wins.
-_FRONTEND = ROOT / "frontend"
-if (_FRONTEND / "index.html").exists():
-    app.mount("/", StaticFiles(directory=_FRONTEND, html=True), name="frontend")
+# The dashboard is a React app in frontend/; `npm run build` there writes frontend/dist,
+# which is served at /. Mounted last so /api wins. Without a build, / explains how to make one.
+_DIST = ROOT / "frontend" / "dist"
+if (_DIST / "index.html").exists():
+    app.mount("/", StaticFiles(directory=_DIST, html=True), name="frontend")
+else:
+
+    @app.get("/", include_in_schema=False)
+    def dashboard_not_built() -> HTMLResponse:
+        return HTMLResponse(
+            "<!doctype html><title>PennyWise</title><body style='font-family:system-ui;padding:40px'>"
+            "<h1>Dashboard not built</h1><p>Run <code>cd frontend &amp;&amp; npm install &amp;&amp; npm run build</code>, "
+            "then restart uvicorn. For development use <code>npm run dev</code> (http://localhost:5173).</p>"
+            "<p>API docs: <a href='/docs'>/docs</a></p></body>"
+        )

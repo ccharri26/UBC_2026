@@ -15,6 +15,8 @@ and market (bid/ask midpoint). Informed is compared with baseline on the same Ev
 
 Stub rows (fake Nansen readings) are left out unless include_stub=True.
 
+Profit is net_pnl_usd: settled shadow-trade P&L minus Nansen spend.
+
 Run: uv run python -m pennywise.scoring.score [--include-stub]
 """
 
@@ -117,37 +119,49 @@ def summarize(scores: list[EventScore], data_cost_usd: float) -> dict:
         "return_on_stake": round(pnl / staked, 4) if staked else None,
         "pnl_with_data_usd": round(sum(s.pnl_usd for s in trades if s.brier_informed is not None), 4),
         "data_cost_usd": round(data_cost_usd, 4),
+        # The profit figure: settled shadow-trade P&L minus everything spent on Nansen data.
+        # Spend counts as soon as it's paid, so open trades make this look worse until they settle.
+        "net_pnl_usd": round(pnl - data_cost_usd, 4),
     }
 
 
+# Fields of EventScore a report can be grouped by.
+GROUP_FIELDS = ("decided_by", "tier", "asset")
+
+
 def score(include_stub: bool = False) -> dict:
-    """The full report: overall, by who decided, and by tier."""
+    """The full report: overall, by who decided, by tier, and by asset."""
     rows = [r for r in read_decisions().rows if include_stub or not r.stub]
     outcomes = {o.event: o for o in read_outcomes().rows}
+    picked = pick_rows(rows)
     scores = [
-        s for event, row in pick_rows(rows).items()
+        s for event, row in picked.items()
         if event in outcomes and (s := score_event(event, row, outcomes[event])) is not None
     ]
     # Nansen spend comes from every logged row, not just the chosen ones: each purchase is logged once.
-    cost_by: dict[tuple[str, str], float] = defaultdict(float)
+    cost_by: dict[tuple[str, str, str], float] = defaultdict(float)  # keyed like GROUP_FIELDS
     for r in rows:
-        cost_by[(decided_by(r), r.tier)] += r.info.cost_usd
+        cost_by[(decided_by(r), r.tier, r.asset)] += r.info.cost_usd
 
-    def group(key) -> dict:
+    def group(field: str) -> dict:
+        i = GROUP_FIELDS.index(field)
         buckets: dict[str, list[EventScore]] = defaultdict(list)
         costs: dict[str, float] = defaultdict(float)
         for s in scores:
-            buckets[key(s)].append(s)
-        for (who, tier), c in cost_by.items():
-            costs[key(EventScore("", "", tier, who, 0, 0, None, None, None))] += c
-        return {k: summarize(v, costs[k]) for k, v in sorted(buckets.items())}
+            buckets[getattr(s, field)].append(s)
+        for key, c in cost_by.items():
+            costs[key[i]] += c
+        # A group that spent on data but has nothing settled yet still shows, so spend is never hidden.
+        keys = sorted(set(buckets) | {k for k, c in costs.items() if c > 0})
+        return {k: summarize(buckets.get(k, []), costs[k]) for k in keys}
 
     return {
         "include_stub": include_stub,
-        "unsettled_or_unmatched": len(pick_rows(rows)) - len(scores),
+        "unsettled_or_unmatched": len(picked) - len(scores),
         "overall": summarize(scores, sum(cost_by.values())),
-        "by_decided_by": group(lambda s: s.decided_by),
-        "by_tier": group(lambda s: s.tier),
+        "by_decided_by": group("decided_by"),
+        "by_tier": group("tier"),
+        "by_asset": group("asset"),
     }
 
 
@@ -163,7 +177,8 @@ def _print(name: str, s: dict) -> None:
         f"  shadow trades: {s['trades']} ({s['trades_won']} won)  P&L ${s['pnl_usd']:+.2f}"
         f" on ${s['staked_usd']:.2f} staked  (with data ${s['pnl_with_data_usd']:+.2f})"
     )
-    print(f"  Nansen spend: ${s['data_cost_usd']:.2f}")
+    ret = "  -" if s["return_on_stake"] is None else f"{s['return_on_stake']:+.1%}"
+    print(f"  Nansen spend: ${s['data_cost_usd']:.2f}  ->  net P&L ${s['net_pnl_usd']:+.2f}  (return on stake {ret})")
 
 
 if __name__ == "__main__":
@@ -175,3 +190,5 @@ if __name__ == "__main__":
         _print(f"Decided by {who}", s)
     for tier, s in report["by_tier"].items():
         _print(f"Tier {tier}", s)
+    for asset, s in report["by_asset"].items():
+        _print(f"Asset {asset}", s)
