@@ -1,0 +1,62 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+
+/* Dark mode follows the OS. Colours are tokens so components never hard-code a theme. */
+@custom-variant dark (@media (prefers-color-scheme: dark));
+
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+
+  --color-canvas: #f7f7f5;
+  --color-surface: #ffffff;
+  --color-subtle: #f1f1ee;
+  --color-line: #e7e6e2;
+  --color-ink: #16181d;
+  --color-ink-2: #4a4f59;
+  --color-ink-3: #8a8f99;
+
+  --color-accent: #4f46e5;
+  --color-accent-soft: #eef0ff;
+
+  --color-gain: #0f8a5f;
+  --color-gain-soft: #e5f5ee;
+  --color-loss: #c2352b;
+  --color-loss-soft: #fcebe9;
+  --color-caution: #a15c07;
+  --color-caution-soft: #fdf2df;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-canvas: #0d0f12;
+    --color-surface: #15181d;
+    --color-subtle: #1c2027;
+    --color-line: #262b33;
+    --color-ink: #eceef1;
+    --color-ink-2: #b0b5bf;
+    --color-ink-3: #767c87;
+
+    --color-accent: #8b85ff;
+    --color-accent-soft: #23224a;
+
+    --color-gain: #3ecf8e;
+    --color-gain-soft: #12301f;
+    --color-loss: #ff6b5e;
+    --color-loss-soft: #3a1714;
+    --color-caution: #f0b44c;
+    --color-caution-soft: #362811;
+  }
+}
+
+@layer base {
+  html {
+    color-scheme: light dark;
+  }
+  body {
+    @apply bg-canvas text-ink font-sans antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}

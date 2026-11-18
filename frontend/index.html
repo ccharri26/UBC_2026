@@ -1,46 +1,13 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PennyWise</title>
-  <link rel="stylesheet" href="style.css">
-  <script type="module" src="app.js"></script>
-</head>
-<body>
-  <header>
-    <h1>PennyWise</h1>
-    <div id="mode-badges"></div>
-    <span id="updated" class="muted"></span>
-  </header>
-
-  <main>
-    <section class="card" id="spending">
-      <h2>Spending</h2>
-      <div id="spending-body" class="muted">Loading…</div>
-    </section>
-
-    <section class="card" id="controls">
-      <h2>Guardrails</h2>
-      <div id="controls-body" class="muted">Loading…</div>
-    </section>
-
-    <section class="card wide" id="signals">
-      <h2>Nansen signals</h2>
-      <div id="signals-body" class="muted">Loading…</div>
-    </section>
-
-    <section class="card wide" id="payments">
-      <h2>Payments</h2>
-      <div id="payments-body" class="muted">Loading…</div>
-    </section>
-
-    <section class="card wide" id="decisions">
-      <h2>Decisions</h2>
-      <div id="decisions-body" class="muted">Loading…</div>
-    </section>
-  </main>
-
-  <div id="error" role="alert" hidden></div>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PennyWise</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%2310b981'/><text x='16' y='22' font-size='16' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='700'>¢</text></svg>" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>
