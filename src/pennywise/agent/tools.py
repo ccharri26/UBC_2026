@@ -226,6 +226,8 @@ def buy_nansen_data(state: CycleState, asset: str, tier: str) -> dict:
 @_tool
 def propose_trade(state: CycleState, event: str, side: str) -> dict:
     """Propose a shadow trade on one Event. Code checks the edge and picks contract and size."""
+    if control.kill_switch_on():
+        raise ToolError("the kill switch is on: no trading")
     side = side.upper()
     if side not in ("YES", "NO"):
         raise ToolError("side must be YES or NO")

@@ -2,9 +2,10 @@ import { Power, ShieldAlert } from "lucide-react";
 import { useState } from "react";
 import { setKillSwitch, type Status } from "../api";
 import { Badge, Button, Modal } from "../components/ui";
+import { ApprovalSettingsButton } from "./ApprovalSettings";
 import { time, usd } from "../lib/format";
 
-/** Sticky top bar: mode badges and the kill switch. Stopping is one click; resuming needs the modal. */
+/** Sticky top bar: mode badges, approval settings and the kill switch. Stopping is one click; resuming needs the modal. */
 export function Header({
   status,
   onStatus,
@@ -45,22 +46,23 @@ export function Header({
         {status && (
           <div className="flex flex-wrap items-center gap-1.5">
             {status.stub_mode ? <Badge tone="caution" dot>Stub data</Badge> : <Badge tone="gain" dot>Live data</Badge>}
-            {status.kill_switch ? <Badge tone="loss" dot>Spending off</Badge> : <Badge tone="gain" dot>Spending on</Badge>}
+            {status.kill_switch ? <Badge tone="loss" dot>Kill switch on</Badge> : <Badge tone="gain" dot>Spending on</Badge>}
             {status.paused_after_failures && <Badge tone="loss">Paused after failures</Badge>}
           </div>
         )}
 
         <div className="ml-auto flex items-center gap-3">
           {updatedAt && <span className="hidden text-xs text-ink-3 sm:inline">Updated {time(updatedAt.toISOString())}</span>}
+          <ApprovalSettingsButton onError={onError} />
           {status &&
             (status.dashboard_stopped ? (
               <Button onClick={() => setConfirming(true)} disabled={status.env_lock || busy}
                 title={status.env_lock ? "Locked by KILL_SWITCH in .env" : undefined}>
-                <Power className="size-4" /> Resume spending
+                <Power className="size-4" /> Resume
               </Button>
             ) : (
               <Button variant="danger" onClick={() => toggle(true)} disabled={busy}>
-                <Power className="size-4" /> Stop all spending
+                <Power className="size-4" /> Kill switch
               </Button>
             ))}
         </div>
@@ -72,9 +74,9 @@ export function Header({
             <ShieldAlert className="size-5" />
           </div>
           <div>
-            <h3 className="text-base font-semibold">Resume spending?</h3>
+            <h3 className="text-base font-semibold">Turn the kill switch off?</h3>
             <p className="mt-1.5 text-sm text-ink-2">
-              The agent will be able to pay real USDC on Base for Nansen data again. Every guardrail still applies.
+              The agent will be able to trade and pay real USDC on Base for Nansen data again. Every guardrail and your approval threshold still apply.
             </p>
           </div>
         </div>
@@ -97,7 +99,7 @@ export function Header({
         <div className="mt-6 flex justify-end gap-2">
           <Button onClick={() => setConfirming(false)}>Cancel</Button>
           <Button variant="primary" onClick={() => toggle(false)} disabled={busy}>
-            Resume spending
+            Turn off kill switch
           </Button>
         </div>
       </Modal>

@@ -1,6 +1,7 @@
 """pay(): the only function in PennyWise that signs a payment.
 
-Order: kill switch/pause → URL allowlist → free unpaid request → offer check
+Order: kill switch/pause → URL allowlist → budgets → human approval at or above the
+Approval Threshold (outside the lock; may wait 90 s) → all of these again → free unpaid request → offer check
 (scheme, network, asset, pay-to, pinned price, hard cap) → budgets → wallet key
 matches WALLET_ADDRESS → on-chain USDC balance covers the price → sign → ledger →
 send. A refusal at any step before signing raises PaymentRefused.
@@ -16,7 +17,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from . import expected, guardrails, wallet, x402
+from . import approval, expected, guardrails, wallet, x402
 from .config import ConfigError, load_limits, private_key, env
 from .guardrails import PaymentRefused
 
@@ -78,6 +79,22 @@ def _send_signed(http: httpx.Client, url: str, body: dict, header: str):
     return True, tx_hash, detail, data, ""
 
 
+def _approve(url: str, market: str) -> None:
+    """Human approval for prices at or above the Approval Threshold (approval.py).
+
+    Runs outside _lock, because it can wait up to 90 s for a human. Every guardrail runs
+    first so nobody is asked about a purchase that would be refused anyway; pay() then
+    re-runs them all under the lock, since budgets may have moved while we waited.
+    """
+    try:
+        limits = load_limits()
+    except ConfigError as e:
+        raise PaymentRefused(str(e)) from None
+    price = _allowed_price(url)
+    guardrails.check(price, limits, market, datetime.now(timezone.utc))
+    approval.require(price, market, stub=False)
+
+
 def pay(url: str, body: dict, market: str, *, dry_run: bool = False,
         client: httpx.Client | None = None) -> Receipt:
     """POST `body` to a Nansen endpoint, paying via x402 if every guardrail passes.
@@ -85,6 +102,8 @@ def pay(url: str, body: dict, market: str, *, dry_run: bool = False,
     `market` names what the data is for, e.g. "ETH-smart_money"; the per-market
     daily budget is counted per market.
     """
+    if not dry_run:
+        _approve(url, market)
     with _lock:
         now = datetime.now(timezone.utc)
         try:

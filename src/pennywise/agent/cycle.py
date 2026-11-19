@@ -37,6 +37,7 @@ from pennywise.nansen import (
     reading,
     stub_mode,
 )
+from pennywise.payments.control import kill_switch_on
 from pennywise.payments.guardrails import PaymentRefused
 from pennywise.payments.pay import PaymentFailed
 from pennywise.trading.edge import call, edges
@@ -191,7 +192,8 @@ def run_cycle() -> None:
     logged = 0
     for (asset, tier), (d, n) in results.items():
         quotes = forecast_quotes(snap.groups[(asset, tier)], snap.spots[asset], snap.vols[asset], tier, n.reading)
-        trades = pick_trades(quotes, traded)
+        # The Kill Switch stops trading too; re-read per group, since an unanswered approval trips it mid-cycle.
+        trades = [] if kill_switch_on() else pick_trades(quotes, traded)
         try:
             row = build_row(snap, cycle, stub, asset, tier, d, n, quotes, trades)
         except RecordError as e:  # a row that doesn't fit the schema: report it, don't trade on it

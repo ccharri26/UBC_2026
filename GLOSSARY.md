@@ -27,3 +27,19 @@ _Avoid_: Action, step
 **Profit**:
 Settled shadow-trade winnings minus what was spent on Nansen data. LLM costs are not counted, and shadow trades are assumed to fill at the quoted price.
 _Avoid_: Return, earnings
+
+**Feed**:
+One asset's Nansen data at one Tier, such as ETH Smart Money. Spending budgets are counted per Feed per day.
+_Avoid_: Market, slot
+
+**Approval Threshold**:
+The price at or above which a purchase of Nansen data needs a human's approval before any money moves. The human sets it, up to a ceiling that only they can raise by hand.
+_Avoid_: Approval limit, trigger
+
+**Approval Request**:
+One purchase at or above the Approval Threshold, waiting for a human to approve or deny it. It covers that one purchase only. A denial skips the purchase; no answer in time counts as a denial and also trips the Kill Switch.
+_Avoid_: Prompt, confirmation
+
+**Kill Switch**:
+Stops all spending and all trading until a human turns it back off.
+_Avoid_: Pause, stop button

@@ -164,10 +164,12 @@ export function Modal({
   open,
   onClose,
   children,
+  locked,
 }: {
   open: boolean;
   onClose: () => void;
   children: ReactNode;
+  locked?: boolean; // Escape and backdrop clicks don't close it: the user must press a button
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -180,7 +182,8 @@ export function Modal({
     <dialog
       ref={ref}
       onClose={onClose}
-      onClick={(e) => e.target === ref.current && onClose()}
+      onCancel={(e) => locked && e.preventDefault()}
+      onClick={(e) => !locked && e.target === ref.current && onClose()}
       className="m-auto w-[min(440px,calc(100vw-32px))] rounded-2xl border border-line bg-surface p-0 text-ink shadow-2xl backdrop:bg-black/40 backdrop:backdrop-blur-sm"
     >
       <div className="p-6">{children}</div>

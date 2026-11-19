@@ -11,7 +11,8 @@ print to the console as usual.
   runner.stop()
 
 Safety: the runner adds no spending path. Every purchase still goes through
-get_signals() -> pay() and every guardrail, and the kill switch still applies. On top
+get_signals() -> pay() and every guardrail, and the kill switch still applies: while it
+is on no cycle runs, and a repeat run stops after the cycle in which it turned on. On top
 of that, a Runner refuses to run a cycle while NANSEN_STUB is off unless it was
 created with allow_live=True (checked before every cycle, because .env can change
 while a loop is running).
@@ -35,6 +36,7 @@ from typing import Callable, Literal
 
 from pennywise.agent import grok
 from pennywise.nansen import stub_mode
+from pennywise.payments.control import kill_switch_on
 from pennywise.scoring.settle import settle
 
 Mode = Literal["rule", "llm"]
@@ -111,6 +113,8 @@ class Runner:
         error = None
         if not stub and not self.allow_live:
             error = "live mode not allowed: set NANSEN_STUB=true or create the runner with allow_live"
+        elif kill_switch_on():
+            error = "kill switch is on"
         else:
             try:
                 _cycle_fn(mode)()
@@ -176,7 +180,9 @@ class Runner:
             with self._state_lock:
                 self._cycles_done += 1
                 self._failures = 0 if report.ok else self._failures + 1
-                if self._max_cycles is not None and self._cycles_done >= self._max_cycles:
+                if kill_switch_on():
+                    self._stopped_because = "kill switch is on"
+                elif self._max_cycles is not None and self._cycles_done >= self._max_cycles:
                     self._stopped_because = f"finished {self._cycles_done} cycles"
                 elif self._failures >= MAX_FAILURES:
                     self._stopped_because = f"{self._failures} failed cycles in a row"

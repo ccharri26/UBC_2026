@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getDecisions, getPayments, getScore, getSignals, getStatus, getWallet } from "./api";
 import { usePoll } from "./lib/usePoll";
+import { ApprovalPrompt } from "./panels/ApprovalPrompt";
 import { Decisions } from "./panels/Decisions";
 import { Guardrails } from "./panels/Guardrails";
 import { Header } from "./panels/Header";
@@ -33,6 +34,7 @@ export default function App() {
   return (
     <div className="min-h-screen">
       <Header status={status.data} onStatus={status.set} updatedAt={updatedAt} onError={setActionError} />
+      <ApprovalPrompt onError={setActionError} onAnswered={status.refresh} />
 
       <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 sm:py-8">
         {error && (

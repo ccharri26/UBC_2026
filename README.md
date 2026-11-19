@@ -84,7 +84,7 @@ The payment side fits the track well, but the agent's decisions are currently pl
 |---|---|
 | Agent pays per request (x402) | **Done.** Real USDC on Base, settled on-chain |
 | Budgets and allowlists | **Done.** Per-call cap, run and daily budgets, host and endpoint allowlist, price pinning, kill switch, pause after failures |
-| Human approval for large transactions | **Missing.** Voice approval is planned but not built |
+| Human approval for large transactions | **Built** (dashboard): purchases at or above a threshold you set wait 90 s for Approve/Deny; no answer trips the kill switch. Voice approval is planned |
 | LLMs that read from and act on the blockchain safely | **Missing.** No LLM is in the loop |
 | Marketplace or service that agents pay for | Not attempted (optional, since the track only says to "aim" for these) |
 | Document the decision loop and safety limits | Partly done here; needs a proper write-up |
@@ -104,7 +104,7 @@ The LLM decides what to buy and why. Code still decides whether a payment can be
 
 This changes the LLM's role. It used to only explain decisions and veto or shrink trades. Now it may trigger purchases, but only through tools that enforce every limit, and it can never raise or bypass a limit. The current deterministic cycle stays as a fallback mode (for example, if the LLM API is down during the demo).
 
-### 2. Human approval for big spends
+### 2. Human approval for big spends (built, dashboard only)
 
 An approval step in `payments/guardrails.py`, before signing. Any payment above a set amount (for example a $0.05 Smart Money call, or anything once daily spend passes 50%) waits until a human approves it from the dashboard or by voice. If no one approves it, it is refused. It lives in `payments/`, not in the LLM tools, so the LLM cannot skip it.
 

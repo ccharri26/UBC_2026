@@ -174,7 +174,40 @@ export const getDecisions = (limit = 50) => request<Decisions>(`/decisions?limit
 // include_stub defaults (server side) to the current stub mode.
 export const getScore = () => request<Score>("/score");
 
-// on=true stops all spending. Turning it back on requires confirm=true, and fails (409)
+// on=true stops all spending and trading. Turning it back on requires confirm=true, and fails (409)
 // while env_lock is set: only a hand edit of .env clears that.
 export const setKillSwitch = (on: boolean, confirm = false) =>
   request<Status>("/kill-switch", { method: "POST", body: JSON.stringify({ on, confirm }) });
+
+// --- human approval ----------------------------------------------------------------
+// Purchases at or above the Approval Threshold wait (wait_seconds) for a human answer.
+// No answer = refused and the kill switch turns on.
+
+export interface ApprovalSettings {
+  threshold_usd: number;
+  ceiling_usd: number; // APPROVAL_CEILING_USD in .env: the highest threshold allowed
+  ceiling_problem: string | null; // ceiling missing or malformed (then it's 0)
+  wait_seconds: number;
+  prices_usd: Record<Tier, number>;
+}
+
+export interface ApprovalRequest {
+  id: string;
+  market: string; // the Feed, e.g. "ETH-smart_money"
+  amount_usd: number;
+  stub: boolean; // fake data: no money moves either way
+  created_at: string;
+  expires_at: string;
+}
+
+export const getApprovalSettings = () => request<ApprovalSettings>("/approval/settings");
+// Raising the threshold needs confirm=true; above the ceiling fails (409).
+export const setApprovalThreshold = (threshold_usd: number, confirm = false) =>
+  request<ApprovalSettings>("/approval/settings", { method: "POST", body: JSON.stringify({ threshold_usd, confirm }) });
+export const getApprovalRequests = () => request<ApprovalRequest[]>("/approval/requests");
+// 409 if the request expired or was already answered.
+export const answerApproval = (id: string, approve: boolean) =>
+  request<{ id: string; answer: "approved" | "denied" }>(`/approval/requests/${encodeURIComponent(id)}`, {
+    method: "POST",
+    body: JSON.stringify({ approve }),
+  });

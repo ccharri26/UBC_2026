@@ -1,6 +1,7 @@
 """The dashboard's kill switch, stored in data/control.json (never in .env).
 
-Spending is allowed only if BOTH switches allow it:
+The Kill Switch stops all spending AND all trading (the agent skips trades and the
+runner stops looping). It is on if EITHER switch says so:
 - KILL_SWITCH in .env: the master lock, set by hand. true = locked, and the
   dashboard cannot override it.
 - data/control.json: {"spending": "on" | "off"}, written by the dashboard.
@@ -14,7 +15,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from .config import DATA_DIR
+from .config import DATA_DIR, env
 
 CONTROL_FILE = DATA_DIR / "control.json"
 
@@ -32,6 +33,11 @@ def dashboard_stopped() -> bool:
     except ValueError:
         return True
     return not (isinstance(state, dict) and state.get("spending") == "on")
+
+
+def kill_switch_on() -> bool:
+    """True if all spending and trading must stop: the .env lock or the dashboard switch."""
+    return (env("KILL_SWITCH") or "true").lower() != "false" or dashboard_stopped()
 
 
 def set_spending(on: bool) -> None:

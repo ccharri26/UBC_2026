@@ -11,13 +11,14 @@ A slot that was paid for but gave nothing usable (bad response, or a payment tha
 after money left) is remembered until it would have expired, and not bought again.
 
 Callers handle one error: NansenUnavailable means "use the baseline only".
-Set NANSEN_STUB=true to get fake signals with no network and no spending.
+Set NANSEN_STUB=true to get fake signals with no network and no spending. Stub
+purchases still go through human approval (payments/approval.py), like real ones.
 """
 
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
-from pennywise.payments import PaymentFailed, PaymentRefused, pay
+from pennywise.payments import PaymentFailed, PaymentRefused, approval, pay
 from pennywise.payments.config import env
 
 from .bodies import NATIVE_TOKENS, build_body
@@ -170,6 +171,11 @@ def get_signals(asset: str, horizon: Horizon, now: Callable[[], datetime] = _utc
         raise NansenUnavailable(f"{asset} {tier.value} already paid this slot with nothing usable; not rebuying",
                                 spent=False) from bad[1]
     if stub:
+        # No money moves, but the human still approves as if it did, so the demo rehearses it.
+        try:
+            approval.require(tier_price(tier), market_id(asset, tier), stub=True)
+        except PaymentRefused as e:
+            raise NansenUnavailable(f"payment refused: {e}", spent=False) from e
         signals = stub_signals(asset, tier, t)
     else:
         try:

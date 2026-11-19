@@ -9,6 +9,8 @@ Rules:
   in live mode it shows what is already cached.
 - Never return the private key. Only the wallet address leaves this process.
 - Turning spending back ON needs {"confirm": true}; turning it OFF never does.
+- Raising the Approval Threshold needs {"confirm": true}; lowering it never does.
+- Every POST accepts application/json only (see _json_only).
 - Never writes .env. The kill switch lives in data/control.json (payments/control.py);
   KILL_SWITCH=true in .env is a hand-set lock the dashboard can't override.
 """
@@ -25,16 +27,18 @@ from pennywise.decisions import read_decisions, read_outcomes
 from pennywise.nansen import (
     Horizon,
     NansenSignals,
-    NansenUnavailable,
+    Tier,
     cached_signals,
-    get_signals,
     horizons_for,
     stub_mode,
     supported_assets,
     tier_for_url,
+    tier_of,
+    tier_price,
 )
-from pennywise.payments import control, expected, guardrails, wallet
-from pennywise.payments.config import ROOT, ConfigError, env, load_limits
+from pennywise.nansen.stub import stub_signals
+from pennywise.payments import approval, control, expected, guardrails, wallet
+from pennywise.payments.config import ROOT, ConfigError, env, load_limits, usd_to_units
 from pennywise.scoring.score import score, trade_pnl
 
 app = FastAPI(title="PennyWise", description="Read-only views of payments and Nansen signals, plus a kill switch.")
@@ -126,23 +130,19 @@ def payments(limit: int = 50) -> list[dict]:
 def signals() -> dict:
     """Latest Nansen signals per asset and Horizon.
 
-    Stub mode: fetched fresh (fake, free). Live mode: what the agent already bought
+    Stub mode: made fresh (fake, free, no approval). Live mode: what the agent already bought
     (data/nansen_cache.json); this endpoint never pays.
     """
     if not stub_mode():
         live = sorted(cached_signals(), key=lambda s: (s.asset, s.tier.value))
         return {"mode": "live", "signals": [_signals_dict(s) for s in live], "errors": []}
-    out, errors, seen = [], [], set()
+    # Fake data straight from the stub, never get_signals(): that path asks a human for
+    # approval, and a dashboard poll must never create an Approval Request.
+    now = datetime.now(timezone.utc)
+    out, errors = [], []
     for asset in supported_assets():
-        for horizon in Horizon:
-            try:
-                s = get_signals(asset, horizon)
-            except NansenUnavailable as e:
-                errors.append({"asset": asset, "horizon": horizon.value, "error": str(e)})
-                continue
-            if id(s) not in seen:  # 5M and 15M share one result
-                seen.add(id(s))
-                out.append(_signals_dict(s))
+        for tier in dict.fromkeys(tier_of(h) for h in Horizon):  # 5M and 15M share Basic
+            out.append(_signals_dict(stub_signals(asset, tier, now)))
     return {"mode": "stub", "signals": out, "errors": errors}
 
 
@@ -189,12 +189,16 @@ class KillSwitch(BaseModel):
     confirm: bool = False  # required to turn spending back on
 
 
-@app.post("/api/kill-switch")
-def kill_switch(body: KillSwitch, request: Request) -> dict:
-    # JSON only: a plain HTML form on another site can't send application/json without
-    # a CORS preflight, which this server never approves. Blocks drive-by toggles.
+def _json_only(request: Request) -> None:
+    # A plain HTML form on another site can't send application/json without a CORS
+    # preflight, which this server never approves. Blocks drive-by POSTs.
     if not request.headers.get("content-type", "").startswith("application/json"):
         raise HTTPException(415, "send application/json")
+
+
+@app.post("/api/kill-switch")
+def kill_switch(body: KillSwitch, request: Request) -> dict:
+    _json_only(request)
     if not body.on:
         if not body.confirm:
             raise HTTPException(400, 'turning spending back on needs {"on": false, "confirm": true}')
@@ -202,6 +206,66 @@ def kill_switch(body: KillSwitch, request: Request) -> dict:
             raise HTTPException(409, "locked by KILL_SWITCH in .env; set KILL_SWITCH=false there by hand to allow spending")
     control.set_spending(on=not body.on)
     return status()
+
+
+def _approval_settings() -> dict:
+    return {
+        "threshold_usd": _usd(approval.threshold()),
+        "ceiling_usd": _usd(approval.ceiling()),
+        "ceiling_problem": approval.ceiling_problem(),
+        "wait_seconds": approval.WAIT_SECONDS,
+        "prices_usd": {t.value: _usd(tier_price(t)) for t in Tier},
+    }
+
+
+@app.get("/api/approval/settings")
+def approval_settings() -> dict:
+    """The Approval Threshold: purchases at or above it wait for a human."""
+    return _approval_settings()
+
+
+class ApprovalSettings(BaseModel):
+    threshold_usd: float
+    confirm: bool = False  # required to raise the threshold
+
+
+@app.post("/api/approval/settings")
+def set_approval_settings(body: ApprovalSettings, request: Request) -> dict:
+    _json_only(request)
+    try:
+        approval.set_threshold(usd_to_units(str(body.threshold_usd)), body.confirm)
+    except approval.ApprovalError as e:
+        raise HTTPException(409, str(e)) from None
+    return _approval_settings()
+
+
+@app.get("/api/approval/requests")
+def approval_requests() -> list[dict]:
+    """Approval Requests waiting for an answer, oldest first."""
+    return [
+        {
+            "id": r["id"],
+            "market": r["market"],
+            "amount_usd": _usd(r["amount"]),
+            "stub": bool(r.get("stub")),
+            "created_at": r["created_at"],
+            "expires_at": r["expires_at"],
+        }
+        for r in approval.pending()
+    ]
+
+
+class ApprovalAnswer(BaseModel):
+    approve: bool
+
+
+@app.post("/api/approval/requests/{request_id}")
+def answer_approval(request_id: str, body: ApprovalAnswer, request: Request) -> dict:
+    _json_only(request)
+    try:
+        return {"id": request_id, "answer": approval.answer(request_id, body.approve)}
+    except approval.ApprovalError as e:
+        raise HTTPException(409, str(e)) from None
 
 
 # The dashboard is a React app in frontend/; `npm run build` there writes frontend/dist,
