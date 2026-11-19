@@ -211,3 +211,54 @@ export const answerApproval = (id: string, approve: boolean) =>
     method: "POST",
     body: JSON.stringify({ approve }),
   });
+
+// --- Run button ------------------------------------------------------------------------
+// A Run is one start of the agent until it stops: one or more Cycles inside the API server.
+
+export type AgentMode = "rule" | "llm";
+
+export interface CycleReport {
+  started_at: string;
+  finished_at: string;
+  mode: AgentMode;
+  stub: boolean;
+  ok: boolean;
+  error: string | null;
+}
+
+export interface RunnerStatus {
+  repeating: boolean; // a Run is active
+  cycle_running: boolean;
+  once: boolean; // the Run is a single Cycle
+  every_seconds: number | null;
+  mode: AgentMode;
+  stub_mode: boolean;
+  cycles_done: number;
+  max_cycles: number | null;
+  failures_in_a_row: number;
+  next_run_at: string | null;
+  stopped_because: string | null; // why the last Run ended, e.g. "finished 30 cycles", "server restarted"
+  last: CycleReport | null;
+  run_started_at: string | null;
+  kill_switch: boolean;
+  run_spent_usd: number;
+  run_budget_usd: number | null;
+  per_run_cap_usd: number | null; // BUDGET_PER_RUN_USD in .env: a Run's budget can't go above it
+  min_every_seconds: number;
+  max_every_seconds: number;
+}
+
+export interface RunStart {
+  mode: AgentMode;
+  once: boolean;
+  every_seconds: number;
+  max_cycles: number | null;
+  budget_usd: number | null;
+  live: boolean; // required when stub mode is off: the Run may spend real USDC
+}
+
+export const getRunner = () => request<RunnerStatus>("/runner");
+// 409 if the kill switch is on, a Run is already active, or live is needed but false.
+export const startRun = (body: RunStart) => request<RunnerStatus>("/runner/start", { method: "POST", body: JSON.stringify(body) });
+// Stops after the current Cycle and denies its open Approval Requests. Leaves the kill switch alone.
+export const stopRun = () => request<RunnerStatus>("/runner/stop", { method: "POST", body: "{}" });

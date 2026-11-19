@@ -21,8 +21,16 @@ A level of paid Nansen data with a fixed price per call: Basic (5M and 15M Horiz
 _Avoid_: Plan, package
 
 **Decision**:
-The agent's choice for one asset and one Tier in one pass of the agent: skip the data, reuse data already bought, or buy it, together with any trades that follow.
+The agent's choice for one asset and one Tier in one Cycle: skip the data, reuse data already bought, or buy it, together with any trades that follow.
 _Avoid_: Action, step
+
+**Cycle**:
+One pass of the agent: scan Gemini, decide per Feed whether to buy data, forecast, trade or pass, then settle finished Events.
+_Avoid_: Pass, tick, iteration
+
+**Run**:
+Everything from one human start of the agent until it stops: a sequence of one or more Cycles. It ends when its Cycles are done, a human stops it, the Kill Switch trips, Cycles keep failing, or the server restarts. Each Run has its own spending budget.
+_Avoid_: Session, job
 
 **Profit**:
 Settled shadow-trade winnings minus what was spent on Nansen data. LLM costs are not counted, and shadow trades are assumed to fill at the quoted price.
@@ -42,4 +50,4 @@ _Avoid_: Prompt, confirmation
 
 **Kill Switch**:
 Stops all spending and all trading until a human turns it back off.
-_Avoid_: Pause, stop button
+_Avoid_: Pause, stop button (stopping a Run ends the Run but leaves spending allowed)

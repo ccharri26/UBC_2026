@@ -23,7 +23,15 @@ function secondsLeft(expiresAt: string, now: number): number {
  * Pops up whenever the agent is waiting on an Approval Request. It can't be dismissed:
  * the only ways out are Approve, Deny, or the timer running out (which trips the kill switch).
  */
-export function ApprovalPrompt({ onError, onAnswered }: { onError: (msg: string) => void; onAnswered: () => void }) {
+export function ApprovalPrompt({
+  onError,
+  onAnswered,
+  onStopRun,
+}: {
+  onError: (msg: string) => void;
+  onAnswered: () => void;
+  onStopRun?: () => Promise<void>; // set while a dashboard Run is active: denies this request and ends the Run
+}) {
   const requests = usePoll(getApprovalRequests, POLL_MS);
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -49,11 +57,14 @@ export function ApprovalPrompt({ onError, onAnswered }: { onError: (msg: string)
     };
   }, [current]);
 
-  async function answer(approve: boolean) {
+  async function answer(approve: boolean, stopRun = false) {
     if (!current) return;
     setBusy(true);
     try {
-      await answerApproval(current.id, approve);
+      if (stopRun && onStopRun) {
+        await onStopRun(); // denies the dashboard Run's open requests
+        await answerApproval(current.id, false).catch(() => {}); // 409 = already denied by the Stop
+      } else await answerApproval(current.id, approve);
     } catch (e) {
       onError(`Approval: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -95,7 +106,12 @@ export function ApprovalPrompt({ onError, onAnswered }: { onError: (msg: string)
             <span className={left <= 15 ? "font-medium text-loss" : ""}>{left}s left.</span> With no answer, the purchase is refused and
             the kill switch stops all spending and trading.
           </p>
-          <div className="mt-6 flex justify-end gap-2">
+          <div className="mt-6 flex flex-wrap justify-end gap-2">
+            {onStopRun && (
+              <Button variant="danger" onClick={() => answer(false, true)} disabled={busy} className="mr-auto">
+                Deny &amp; stop Run
+              </Button>
+            )}
             <Button onClick={() => answer(false)} disabled={busy}>
               Deny
             </Button>

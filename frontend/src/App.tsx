@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getDecisions, getPayments, getScore, getSignals, getStatus, getWallet } from "./api";
+import { getDecisions, getPayments, getRunner, getScore, getSignals, getStatus, getWallet, stopRun } from "./api";
 import { usePoll } from "./lib/usePoll";
 import { ApprovalPrompt } from "./panels/ApprovalPrompt";
 import { Decisions } from "./panels/Decisions";
@@ -8,14 +8,17 @@ import { Header } from "./panels/Header";
 import { Hero } from "./panels/Hero";
 import { Payments } from "./panels/Payments";
 import { Profit } from "./panels/Profit";
+import { RunStatusBar, runActive } from "./panels/RunControl";
 import { Signals } from "./panels/Signals";
 
+const RUNNER_MS = 2_000; // the Run status line has a countdown
 const FAST_MS = 5_000; // status, payments, signals, decisions
 const DECISION_ROWS = 24; // about three passes: enough to show the pattern without burying the rest
 const SLOW_MS = 30_000; // wallet (an RPC call) and score (changes only when Events settle)
 
 export default function App() {
   const status = usePoll(getStatus, FAST_MS);
+  const runner = usePoll(getRunner, RUNNER_MS);
   const payments = usePoll(() => getPayments(), FAST_MS);
   const signals = usePoll(getSignals, FAST_MS);
   const decisions = usePoll(() => getDecisions(DECISION_ROWS), FAST_MS);
@@ -28,13 +31,31 @@ export default function App() {
     if (status.data) setUpdatedAt(new Date());
   }, [status.data]);
 
-  const pollError = [status, payments, signals, decisions, score].find((p) => p.error)?.error;
+  const pollError = [status, runner, payments, signals, decisions, score].find((p) => p.error)?.error;
   const error = actionError || (pollError ? `Can't reach the API: ${pollError.message}` : "");
 
   return (
     <div className="min-h-screen">
-      <Header status={status.data} onStatus={status.set} updatedAt={updatedAt} onError={setActionError} />
-      <ApprovalPrompt onError={setActionError} onAnswered={status.refresh} />
+      <Header
+        status={status.data}
+        onStatus={(s) => {
+          status.set(s);
+          runner.refresh(); // the kill switch ends a Run
+        }}
+        runner={runner.data}
+        onRunner={runner.set}
+        updatedAt={updatedAt}
+        onError={setActionError}
+      />
+      <RunStatusBar runner={runner.data} />
+      <ApprovalPrompt
+        onError={setActionError}
+        onAnswered={() => {
+          status.refresh();
+          runner.refresh();
+        }}
+        onStopRun={runActive(runner.data) ? async () => runner.set(await stopRun()) : undefined}
+      />
 
       <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 sm:py-8">
         {error && (

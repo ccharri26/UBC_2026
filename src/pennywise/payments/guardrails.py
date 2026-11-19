@@ -4,7 +4,9 @@ Every signed authorization is written to data/payments.jsonl BEFORE it is sent a
 counts toward the budgets whatever happens next. Once signed, Nansen's facilitator
 may settle it even if we never see a response, so we assume the money is gone.
 
-- Run   = this Python process. Its spend is kept in memory.
+- Run   = one start of the agent (agent/runner.py calls start_run()). Its spend is kept
+  in memory; a process that never starts a Run counts as one Run. A Run may set its
+  own budget, but never above BUDGET_PER_RUN_USD.
 - Daily = UTC calendar day, summed from the ledger, so it survives restarts.
 - Market = one (asset, tier), e.g. "ETH-smart_money": its spend on the UTC day,
   summed from the ledger. Every payment names its market.
@@ -21,6 +23,7 @@ LEDGER = DATA_DIR / "payments.jsonl"
 MAX_CONSECUTIVE_FAILURES = 3
 
 _run_spent = 0
+_run_limit: int | None = None  # the current Run's own budget; None = BUDGET_PER_RUN_USD
 _consecutive_failures = 0
 
 
@@ -113,7 +116,7 @@ def check(amount: int, limits: Limits, market: str, now: datetime) -> None:
 
     rows = _trusted_rows()
     budgets = [
-        ("run", _run_spent, limits.per_run),
+        ("run", _run_spent, run_budget(limits)),
         ("daily", _spent_on(rows, now), limits.daily),
         (f"market {market} (today)", _spent_on(rows, now, market), limits.per_market),
     ]
@@ -121,6 +124,24 @@ def check(amount: int, limits: Limits, market: str, now: datetime) -> None:
     for name, spent, limit in budgets:
         if spent + amount > limit:
             raise PaymentRefused(f"{name} budget: spent {spent} + {amount} > limit {limit} (USDC base units)")
+
+
+def start_run(limit: int | None = None) -> None:
+    """A new Run: its spend starts at 0. `limit` (USDC base units) may lower the per-run
+    budget for this Run; it can never raise it above BUDGET_PER_RUN_USD (see run_budget)."""
+    global _run_spent, _run_limit
+    if limit is not None and (type(limit) is not int or limit < 0):
+        raise ValueError("a Run's budget must be a whole number of USDC base units, at least 0")
+    _run_spent, _run_limit = 0, limit
+
+
+def run_budget(limits: Limits) -> int:
+    """The current Run's budget: its own limit, capped by BUDGET_PER_RUN_USD."""
+    return limits.per_run if _run_limit is None else min(_run_limit, limits.per_run)
+
+
+def run_spent() -> int:
+    return _run_spent
 
 
 def record_signed(amount: int, url: str, market: str, payer: str, now: datetime) -> None:

@@ -83,7 +83,7 @@ The payment side fits the track well, but the agent's decisions are currently pl
 | Track item | Status |
 |---|---|
 | Agent pays per request (x402) | **Done.** Real USDC on Base, settled on-chain |
-| Budgets and allowlists | **Done.** Per-call cap, run and daily budgets, host and endpoint allowlist, price pinning, kill switch, pause after failures |
+| Budgets and allowlists | **Done.** Per-call cap, per-Run (settable when you press Run, up to the `.env` cap) and daily budgets, host and endpoint allowlist, price pinning, kill switch, pause after failures |
 | Human approval for large transactions | **Built** (dashboard): purchases at or above a threshold you set wait 90 s for Approve/Deny; no answer trips the kill switch. Voice approval is planned |
 | LLMs that read from and act on the blockchain safely | **Missing.** No LLM is in the loop |
 | Marketplace or service that agents pay for | Not attempted (optional, since the track only says to "aim" for these) |

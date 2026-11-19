@@ -1,7 +1,8 @@
 """Thin HTTP layer for the dashboard. The agent itself never needs this to run.
 
 Run (from the repo root):
-    uv run uvicorn pennywise.api.app:app --reload
+    uv run uvicorn pennywise.api.app:app
+(Add --reload only for backend work: a reload restarts the server and ends any Run.)
 Then open http://127.0.0.1:8000/docs to try every endpoint.
 
 Rules:
@@ -10,6 +11,9 @@ Rules:
 - Never return the private key. Only the wallet address leaves this process.
 - Turning spending back ON needs {"confirm": true}; turning it OFF never does.
 - Raising the Approval Threshold needs {"confirm": true}; lowering it never does.
+- The Run button starts the agent inside this process (agent/runner.py). A Run that would
+  spend real USDC (NANSEN_STUB=false in .env) needs {"live": true}; the dashboard can't
+  switch stub mode. A Run's budget can be lowered, never raised above BUDGET_PER_RUN_USD.
 - Every POST accepts application/json only (see _json_only).
 - Never writes .env. The kill switch lives in data/control.json (payments/control.py);
   KILL_SWITCH=true in .env is a hand-set lock the dashboard can't override.
@@ -17,12 +21,14 @@ Rules:
 
 from dataclasses import asdict
 from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from pennywise.agent.runner import MAX_EVERY, MIN_EVERY, Runner, RunnerBusy
 from pennywise.decisions import read_decisions, read_outcomes
 from pennywise.nansen import (
     Horizon,
@@ -38,7 +44,7 @@ from pennywise.nansen import (
 )
 from pennywise.nansen.stub import stub_signals
 from pennywise.payments import approval, control, expected, guardrails, wallet
-from pennywise.payments.config import ROOT, ConfigError, env, load_limits, usd_to_units
+from pennywise.payments.config import DATA_DIR, ROOT, ConfigError, env, load_limits, usd_to_units
 from pennywise.scoring.score import score, trade_pnl
 
 app = FastAPI(title="PennyWise", description="Read-only views of payments and Nansen signals, plus a kill switch.")
@@ -266,6 +272,89 @@ def answer_approval(request_id: str, body: ApprovalAnswer, request: Request) -> 
         return {"id": request_id, "answer": approval.answer(request_id, body.approve)}
     except approval.ApprovalError as e:
         raise HTTPException(409, str(e)) from None
+
+
+# --- Run button ----------------------------------------------------------------------
+
+_runner = Runner(state_file=DATA_DIR / "runner.json")
+MAX_CYCLES = 1000
+
+
+def _runner_status() -> dict:
+    s = _runner.status()
+    try:
+        limits = load_limits()
+        cap, budget = limits.per_run, guardrails.run_budget(limits)
+    except ConfigError:
+        cap = budget = None
+    return {
+        **s,
+        "once": s["max_cycles"] == 1,
+        "kill_switch": control.kill_switch_on(),
+        "run_spent_usd": _usd(guardrails.run_spent()),
+        "run_budget_usd": _usd(budget) if budget is not None else None,
+        "per_run_cap_usd": _usd(cap) if cap is not None else None,  # BUDGET_PER_RUN_USD in .env
+        "min_every_seconds": MIN_EVERY,
+        "max_every_seconds": MAX_EVERY,
+    }
+
+
+@app.get("/api/runner")
+def runner_status() -> dict:
+    """The agent's current or last Run: mode, Cycles done, next Cycle, why it stopped."""
+    return _runner_status()
+
+
+class RunStart(BaseModel):
+    mode: Literal["rule", "llm"] = "rule"
+    once: bool = False  # one Cycle, then stop
+    every_seconds: int = 120  # clamped to [MIN_EVERY, MAX_EVERY]
+    max_cycles: int | None = 30  # ignored when once
+    budget_usd: float | None = None  # this Run's budget; None = BUDGET_PER_RUN_USD
+    live: bool = False  # required when NANSEN_STUB is off: the Run may spend real USDC
+
+
+@app.post("/api/runner/start")
+def start_run(body: RunStart, request: Request) -> dict:
+    _json_only(request)
+    if control.kill_switch_on():
+        raise HTTPException(409, "the kill switch is on; turn it off first")
+    stub = stub_mode()
+    if not stub and not body.live:
+        raise HTTPException(409, 'NANSEN_STUB is off in .env, so this Run would spend real USDC; send {"live": true}')
+    if not body.once and body.max_cycles is not None and not 1 <= body.max_cycles <= MAX_CYCLES:
+        raise HTTPException(400, f"max_cycles must be from 1 to {MAX_CYCLES}")
+    try:
+        limits = load_limits()
+    except ConfigError as e:
+        raise HTTPException(409, str(e)) from None
+    budget = None
+    if body.budget_usd is not None:
+        try:
+            budget = usd_to_units(str(body.budget_usd))
+        except ValueError:
+            raise HTTPException(400, "budget_usd is not a dollar amount") from None
+        if not 0 <= budget <= limits.per_run:
+            raise HTTPException(409, f"a Run's budget must be from $0 to ${_usd(limits.per_run)} (BUDGET_PER_RUN_USD in .env)")
+    try:
+        _runner.start(
+            MIN_EVERY if body.once else body.every_seconds,
+            mode=body.mode,
+            max_cycles=1 if body.once else body.max_cycles,
+            allow_live=body.live and not stub,  # if .env flips to live mid-Run, a stub Run refuses its Cycles
+            budget=budget,
+        )
+    except RunnerBusy as e:
+        raise HTTPException(409, str(e)) from None
+    return _runner_status()
+
+
+@app.post("/api/runner/stop")
+def stop_run(request: Request) -> dict:
+    """Stop after the current Cycle. Its open Approval Requests are denied; the kill switch is untouched."""
+    _json_only(request)
+    _runner.stop()
+    return _runner_status()
 
 
 # The dashboard is a React app in frontend/; `npm run build` there writes frontend/dist,

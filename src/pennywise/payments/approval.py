@@ -19,12 +19,17 @@ Requests live as files in data/approvals/ so the agent and the API can be separa
 processes: <id>.json is the request (written by the agent), <id>.answer.json is the
 answer, created exclusively ("x" mode), so whoever answers first (the human, or the
 agent's timeout) wins and the other side sees that answer.
+
+Stopping a Run (agent/runner.py) calls stop_asking(): this process's open requests are
+denied at once and new ones are denied without asking, so the last Cycle finishes on the
+baseline instead of waiting 90 s. A denial never trips the kill switch.
 """
 
 import json
 import os
 import secrets
 import tempfile
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -38,6 +43,8 @@ SETTINGS_FILE = DATA_DIR / "approval.json"
 REQUESTS_DIR = DATA_DIR / "approvals"
 WAIT_SECONDS = 90
 POLL_SECONDS = 0.5
+
+_stopping = threading.Event()  # set while this process's Run is stopping
 
 Answer = Literal["approved", "denied", "expired"]
 _ANSWERS = ("approved", "denied", "expired")
@@ -117,6 +124,8 @@ def require(amount: int, market: str, *, stub: bool) -> None:
         raise PaymentRefused("kill switch is on")
     if not needs_approval(amount):
         return
+    if _stopping.is_set():
+        raise PaymentRefused(f"the Run is stopping, so {market} ${amount / 1_000_000:.2f} was denied without asking")
     now = datetime.now(timezone.utc)
     request_id = secrets.token_hex(16)
     _write_json(REQUESTS_DIR / f"{request_id}.json", {
@@ -124,6 +133,7 @@ def require(amount: int, market: str, *, stub: bool) -> None:
         "market": market,
         "amount": amount,
         "stub": stub,
+        "pid": os.getpid(),  # so stopping a Run denies only its own requests
         "created_at": now.isoformat(),
         "expires_at": (now + timedelta(seconds=WAIT_SECONDS)).isoformat(),
     })
@@ -133,7 +143,10 @@ def require(amount: int, market: str, *, stub: bool) -> None:
     deadline = time.monotonic() + WAIT_SECONDS
     answer = _read_answer(request_id)
     while answer is None and time.monotonic() < deadline:
-        time.sleep(POLL_SECONDS)
+        if _stopping.is_set():  # Stop arrived after the check above
+            _answer(request_id, "denied")
+        else:
+            time.sleep(POLL_SECONDS)
         answer = _read_answer(request_id)
     if answer is None:
         _answer(request_id, "expired")  # if a human answered at the last moment, theirs wins
@@ -146,6 +159,18 @@ def require(amount: int, market: str, *, stub: bool) -> None:
         raise PaymentRefused(f"denied on the dashboard: {market} ${amount / 1_000_000:.2f}")
     control.set_spending(on=False)
     raise PaymentRefused(f"no answer within {WAIT_SECONDS}s for {market}; kill switch turned on")
+
+
+def stop_asking() -> None:
+    """Deny this process's open requests now, and every new one until resume_asking()."""
+    _stopping.set()
+    for req in pending():
+        if req.get("pid") == os.getpid():
+            _answer(req["id"], "denied")
+
+
+def resume_asking() -> None:
+    _stopping.clear()
 
 
 def pending() -> list[dict]:

@@ -1,18 +1,23 @@
 import { Power, ShieldAlert } from "lucide-react";
 import { useState } from "react";
-import { setKillSwitch, type Status } from "../api";
+import { setKillSwitch, type RunnerStatus, type Status } from "../api";
 import { Badge, Button, Modal } from "../components/ui";
 import { ApprovalSettingsButton } from "./ApprovalSettings";
+import { RunButton } from "./RunControl";
 import { time, usd } from "../lib/format";
 
-/** Sticky top bar: mode badges, approval settings and the kill switch. Stopping is one click; resuming needs the modal. */
+/** Sticky top bar: mode badges, approval settings, Run/Stop and the kill switch. Stopping is one click; resuming needs the modal. */
 export function Header({
   status,
   onStatus,
+  runner,
+  onRunner,
   updatedAt,
   onError,
 }: {
   status: Status | undefined;
+  runner: RunnerStatus | undefined;
+  onRunner: (r: RunnerStatus) => void;
   onStatus: (s: Status) => void;
   updatedAt: Date | undefined;
   onError: (msg: string) => void;
@@ -54,6 +59,7 @@ export function Header({
         <div className="ml-auto flex items-center gap-3">
           {updatedAt && <span className="hidden text-xs text-ink-3 sm:inline">Updated {time(updatedAt.toISOString())}</span>}
           <ApprovalSettingsButton onError={onError} />
+          <RunButton runner={runner} status={status} onRunner={onRunner} onError={onError} />
           {status &&
             (status.dashboard_stopped ? (
               <Button onClick={() => setConfirming(true)} disabled={status.env_lock || busy}

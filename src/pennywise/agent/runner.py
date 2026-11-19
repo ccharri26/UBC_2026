@@ -10,6 +10,15 @@ print to the console as usual.
   runner.status()                 # plain dict for a dashboard / API
   runner.stop()
 
+A Run is one start (run_once() or start()) until it stops. Starting one resets the
+per-run budget (guardrails.start_run), optionally lowered for this Run. stop() denies
+this process's open Approval Requests and any new ones (approval.stop_asking), so the
+last Cycle finishes on the baseline instead of waiting on a human.
+
+With a state_file (the dashboard's runner uses data/runner.json), the Run's status is
+saved after every change, so a server restart mid-Run shows "server restarted" instead
+of looking idle. The CLI runner keeps no file.
+
 Safety: the runner adds no spending path. Every purchase still goes through
 get_signals() -> pay() and every guardrail, and the kill switch still applies: while it
 is on no cycle runs, and a repeat run stops after the cycle in which it turned on. On top
@@ -28,14 +37,19 @@ CLI:
 """
 
 import argparse
+import json
+import os
 import sys
+import tempfile
 import threading
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Callable, Literal
 
 from pennywise.agent import grok
 from pennywise.nansen import stub_mode
+from pennywise.payments import approval, guardrails
 from pennywise.payments.control import kill_switch_on
 from pennywise.scoring.settle import settle
 
@@ -81,8 +95,9 @@ def _cycle_fn(mode: Mode) -> Callable[[], None]:
 
 
 class Runner:
-    def __init__(self, allow_live: bool = False) -> None:
+    def __init__(self, allow_live: bool = False, state_file: Path | None = None) -> None:
         self.allow_live = allow_live
+        self._state_file = state_file
         self._cycle_lock = threading.Lock()  # held while a cycle runs: never two at once
         self._state_lock = threading.Lock()  # guards the fields below
         self._thread: threading.Thread | None = None
@@ -95,6 +110,8 @@ class Runner:
         self._next_at: datetime | None = None
         self._stopped_because: str | None = None
         self._last: CycleReport | None = None
+        self._run_started_at: datetime | None = None
+        self._restore()
 
     # --- one cycle ---------------------------------------------------------------
 
@@ -103,9 +120,18 @@ class Runner:
         if not self._cycle_lock.acquire(blocking=False):
             raise RunnerBusy("a cycle is already running")
         try:
+            with self._state_lock:
+                if self._thread is not None and self._thread.is_alive():
+                    raise RunnerBusy("already running on repeat; stop it first")
+            self._begin_run(None)
             return self._run(mode)
         finally:
             self._cycle_lock.release()
+
+    def _begin_run(self, budget: int | None) -> None:
+        guardrails.start_run(budget)  # raises ValueError on a bad budget, before anything starts
+        approval.resume_asking()
+        self._run_started_at = _now()
 
     def _run(self, mode: Mode | None) -> CycleReport:
         mode = mode or grok.agent_mode()
@@ -143,13 +169,23 @@ class Runner:
 
     # --- repeat ------------------------------------------------------------------
 
-    def start(self, every_seconds: float, mode: Mode | None = None, max_cycles: int | None = None) -> None:
-        """Run a cycle now, then every `every_seconds` (clamped), in a background thread."""
+    def start(self, every_seconds: float, mode: Mode | None = None, max_cycles: int | None = None,
+              *, allow_live: bool | None = None, budget: int | None = None) -> None:
+        """Start a Run: a cycle now, then every `every_seconds` (clamped), in a background thread.
+
+        `allow_live` (if given) replaces the runner's setting for this Run. `budget` lowers the
+        per-run budget, in USDC base units (never above BUDGET_PER_RUN_USD).
+        """
         with self._state_lock:
             if self._thread is not None and self._thread.is_alive():
                 raise RunnerBusy("already running on repeat; stop it first")
+            if self._cycle_lock.locked():
+                raise RunnerBusy("a cycle is already running")
             if max_cycles is not None and max_cycles < 1:
                 raise ValueError("max_cycles must be at least 1")
+            self._begin_run(budget)
+            if allow_live is not None:
+                self.allow_live = allow_live
             self._every = int(min(max(every_seconds, MIN_EVERY), MAX_EVERY))
             self._mode = mode
             self._max_cycles = max_cycles
@@ -159,14 +195,21 @@ class Runner:
             self._stop.clear()
             self._thread = threading.Thread(target=self._loop, name="pennywise-runner", daemon=True)
             self._thread.start()
+        self._persist()
 
     def stop(self, wait: bool = False) -> None:
-        """Stop after the current cycle (a running cycle is never cut off mid-way)."""
+        """Stop after the current cycle (a running cycle is never cut off mid-way).
+
+        Open Approval Requests from this process are denied, so that cycle ends quickly.
+        """
         self._stop.set()
         with self._state_lock:
             if self._stopped_because is None and self._thread is not None and self._thread.is_alive():
                 self._stopped_because = "stopped"
             thread = self._thread
+        if self._cycle_lock.locked():
+            approval.stop_asking()
+        self._persist()
         if wait and thread is not None and thread is not threading.current_thread():
             thread.join()
 
@@ -183,18 +226,22 @@ class Runner:
                 if kill_switch_on():
                     self._stopped_because = "kill switch is on"
                 elif self._max_cycles is not None and self._cycles_done >= self._max_cycles:
-                    self._stopped_because = f"finished {self._cycles_done} cycles"
+                    n = self._cycles_done
+                    self._stopped_because = f"finished {n} cycle{'' if n == 1 else 's'}"
                 elif self._failures >= MAX_FAILURES:
                     self._stopped_because = f"{self._failures} failed cycles in a row"
                 if self._stopped_because:
                     self._stop.set()
                     break
                 self._next_at = started + timedelta(seconds=self._every or MIN_EVERY)
+            self._persist()
             wait = (self._next_at - _now()).total_seconds()
             if wait > 0:
                 self._stop.wait(wait)
         with self._state_lock:
             self._next_at = None
+        approval.resume_asking()
+        self._persist(ended=True)
 
     # --- status ------------------------------------------------------------------
 
@@ -215,7 +262,48 @@ class Runner:
                 "next_run_at": self._next_at.isoformat() if repeating and self._next_at else None,
                 "stopped_because": None if repeating else self._stopped_because,
                 "last": asdict(self._last) if self._last else None,
+                "run_started_at": self._run_started_at.isoformat() if self._run_started_at else None,
             }
+
+    # --- saved state (dashboard) -----------------------------------------------
+
+    def _persist(self, ended: bool = False) -> None:
+        """Save status() to the state file. Display only: a failed write is ignored."""
+        if self._state_file is None:
+            return
+        state = self.status()
+        state["active"] = not ended and state["repeating"]
+        try:
+            self._state_file.parent.mkdir(parents=True, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(dir=self._state_file.parent, prefix="runner.", suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(state, f)
+                os.replace(tmp, self._state_file)
+            finally:
+                Path(tmp).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    def _restore(self) -> None:
+        """Load the last Run's status. A Run that was active when the process died ended
+        with the restart."""
+        if self._state_file is None:
+            return
+        try:
+            state = json.loads(self._state_file.read_text(encoding="utf-8"))
+            last = state.get("last")
+            self._last = CycleReport(**last) if isinstance(last, dict) else None
+            self._cycles_done = int(state.get("cycles_done") or 0)
+            self._max_cycles = state.get("max_cycles") if type(state.get("max_cycles")) is int else None
+            started = state.get("run_started_at")
+            self._run_started_at = datetime.fromisoformat(started) if isinstance(started, str) else None
+            reason = state.get("stopped_because")
+            self._stopped_because = "server restarted" if state.get("active") else (reason if isinstance(reason, str) else None)
+        except (OSError, ValueError, TypeError, AttributeError):
+            return
+        if state.get("active"):
+            self._persist(ended=True)
 
 
 # --- CLI -----------------------------------------------------------------------------
