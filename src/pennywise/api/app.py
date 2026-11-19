@@ -171,17 +171,24 @@ def signals() -> dict:
 
 
 @app.get("/api/decisions")
-def decisions(limit: int = 50) -> dict:
+def decisions(limit: int = 50, trades_only: bool = False) -> dict:
     """Decision log (data/decisions.jsonl), newest first: one row per (asset, tier) per cycle.
 
     Each trade gets `result` ("won", "lost", or null until its Event settles) and `pnl_usd`.
     `llm_override` is true when the LLM bought data the value check said to skip.
+    `trades_only` keeps only rows with a trade (the newest `limit` of those, from the whole log).
     `skipped` counts log lines that failed to load.
     """
-    loaded = read_decisions(limit=max(limit, 0))
+    limit = max(limit, 0)
+    if trades_only:
+        loaded = read_decisions()
+        rows = [r for r in loaded.rows if r.trades][-limit:] if limit else []
+    else:
+        loaded = read_decisions(limit=limit)
+        rows = loaded.rows
     outcomes = {o.event: o for o in read_outcomes().rows}
     out = []
-    for row in reversed(loaded.rows):
+    for row in reversed(rows):
         d = row.to_dict()
         d["llm_override"] = row.decided_by == "llm" and not row.info.buy and row.info.source != "none"
         for t, td in zip(row.trades, d["trades"]):

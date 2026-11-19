@@ -149,20 +149,48 @@ function SettleLine({
   );
 }
 
+function ViewToggle({ tradesOnly, onChange }: { tradesOnly: boolean; onChange: (v: boolean) => void }) {
+  const options: [string, boolean][] = [["All", false], ["Trades only", true]];
+  return (
+    <div role="group" aria-label="Which Decisions to show" className="flex shrink-0 rounded-lg border border-line p-0.5 text-xs">
+      {options.map(([label, value]) => (
+        <button
+          key={label}
+          type="button"
+          aria-pressed={tradesOnly === value}
+          onClick={() => onChange(value)}
+          className={cx(
+            "cursor-pointer rounded-md px-2.5 py-1 font-medium transition-colors",
+            tradesOnly === value ? "bg-ink text-canvas" : "text-ink-2 hover:bg-subtle",
+          )}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function Decisions({
   data,
+  tradesOnly,
+  onTradesOnly,
   settle,
   unsettled,
   onSettled,
   onError,
 }: {
   data?: DecisionsData;
+  tradesOnly: boolean;
+  onTradesOnly: (v: boolean) => void;
   settle?: SettleStatus;
   unsettled?: number; // from the score report: logged Events with no outcome yet
   onSettled: (s: SettleStatus) => void;
   onError: (msg: string) => void;
 }) {
   const [open, setOpen] = useState<Set<string>>(new Set());
+  // The server filters too; this covers a poll that was already in flight when the toggle changed.
+  const rows = data ? (tradesOnly ? data.rows.filter((d) => d.trades.length) : data.rows) : [];
   const toggle = (k: string) =>
     setOpen((s) => {
       const n = new Set(s);
@@ -175,14 +203,19 @@ export function Decisions({
     <Card
       title="2 · Decisions"
       subtitle="Per asset and Tier, each pass: is the data worth its price, and is any Contract worth trading? Click a row for its Contracts."
+      action={<ViewToggle tradesOnly={tradesOnly} onChange={onTradesOnly} />}
       flush
     >
       <SettleLine settle={settle} unsettled={unsettled} onSettled={onSettled} onError={onError} />
       {!data ? (
         <div className="px-5 pb-5"><Empty>Loading…</Empty></div>
-      ) : !data.rows.length ? (
-        <div className="px-5 pb-5">
-          <Empty>No Decisions yet. Start the runner: uv run python -m pennywise.agent.runner --every 1m</Empty>
+      ) : !rows.length ? (
+        <div className="px-5 py-5">
+          <Empty>
+            {tradesOnly
+              ? "No trades yet."
+              : "No Decisions yet. Start the runner: uv run python -m pennywise.agent.runner --every 1m"}
+          </Empty>
         </div>
       ) : (
         <Table>
@@ -199,7 +232,7 @@ export function Decisions({
             </tr>
           </thead>
           <tbody>
-            {data.rows.map((d) => {
+            {rows.map((d) => {
               const key = `${d.at}|${d.asset}|${d.tier}`;
               const isOpen = open.has(key);
               return (

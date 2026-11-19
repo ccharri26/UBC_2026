@@ -21,7 +21,12 @@ export default function App() {
   const runner = usePoll(getRunner, RUNNER_MS);
   const payments = usePoll(() => getPayments(), FAST_MS);
   const signals = usePoll(getSignals, FAST_MS);
-  const decisions = usePoll(() => getDecisions(DECISION_ROWS), FAST_MS);
+  const [tradesOnly, setTradesOnly] = useState(false);
+  const decisions = usePoll(() => getDecisions(DECISION_ROWS, tradesOnly), FAST_MS);
+  const refreshDecisions = decisions.refresh;
+  useEffect(() => {
+    refreshDecisions(); // the filter changed: don't wait for the next poll
+  }, [tradesOnly, refreshDecisions]);
   const wallet = usePoll(getWallet, SLOW_MS); // a failed RPC read just shows "—"
   const score = usePoll(getScore, SLOW_MS);
   const settle = usePoll(getSettle, SLOW_MS);
@@ -72,6 +77,8 @@ export default function App() {
         <Signals data={signals.data} />
         <Decisions
           data={decisions.data}
+          tradesOnly={tradesOnly}
+          onTradesOnly={setTradesOnly}
           settle={settle.data}
           unsettled={score.data?.unsettled_or_unmatched}
           onSettled={(s) => {

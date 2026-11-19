@@ -170,7 +170,9 @@ export const getStatus = () => request<Status>("/status");
 export const getWallet = () => request<Wallet>("/wallet");
 export const getPayments = (limit = 50) => request<Payment[]>(`/payments?limit=${limit}`);
 export const getSignals = () => request<Signals>("/signals");
-export const getDecisions = (limit = 50) => request<Decisions>(`/decisions?limit=${limit}`);
+// tradesOnly: only rows with a trade, the newest `limit` of them from the whole log.
+export const getDecisions = (limit = 50, tradesOnly = false) =>
+  request<Decisions>(`/decisions?limit=${limit}${tradesOnly ? "&trades_only=true" : ""}`);
 // include_stub defaults (server side) to the current stub mode.
 export const getScore = () => request<Score>("/score");
 
