@@ -1,124 +1,160 @@
 # PennyWise
 
-An AI agent that looks at crypto prediction markets on Gemini, decides whether it is worth paying for extra on-chain data from Nansen, picks which price tier to buy, and then decides whether to trade.
+**An AI trading agent that pays for on-chain data only when the data is worth more than it costs.**
 
-## What it does
+PennyWise watches Gemini's crypto prediction markets. For each market it asks: *would knowing what smart money is doing on-chain change my trade enough to pay for it?* If yes, it buys the data from Nansen with a USDC micropayment on Base over x402, with no account and no API key. Then it decides whether to trade, and scores itself after the market settles.
 
-1. **Scan** Gemini's crypto prediction markets (BTC, ETH, SOL, XRP).
-2. **Estimate** a probability for each contract using free data: current price, strike, time left, recent volatility.
-3. **Decide whether to buy information.** Is the extra Nansen data likely to change the trade enough to be worth the cost? If not, skip.
-4. **Pick a tier** if buying: Basic (about $0.01 per call) or Smart Money (about $0.05 per call).
-5. **Pay** automatically with USDC on Base using the x402 payment protocol.
-6. **Update** the probability with the new data and **decide whether to trade**. Trades are simulated ("shadow mode") by default, with optional orders in Gemini's sandbox.
-7. **Score itself** after each market settles: did the paid data improve the forecast by more than it cost?
-
-## The pieces
-
-| Piece | What it is |
+| | |
 |---|---|
-| **Gemini prediction markets** | The markets we trade. Each contract pays $1 if its outcome happens, $0 if not, and its price is the market's implied probability. Public market data needs no API key. A separate sandbox account has fake money. |
-| **Nansen** | The paid data source (smart-money flows, token flows, wallet activity). Official x402 pay-per-call API at `api.nansen.ai`; the price list is at `/.well-known/x402`. |
-| **x402** | An HTTP standard where a server replies "402 Payment Required" with a price and the agent pays and retries, with no account or API key. |
-| **Agent wallet** | A throwaway Base wallet holding a few dollars of USDC. The balance is the most the agent can ever lose. |
+| **Live demo** | https://pennywise-ubc.centralus.cloudapp.azure.com/ |
+| **Demo video** | _add link_ |
+| **Track** | Agentic Payments and AI (University Blockchain Conference hackathon, Nov 2026) |
+| **Team** | Andrew (Gemini market data, baseline math, trade logic, scoring) · Chase (x402 wallet and Nansen calls, guardrails and human approval, dashboard) |
 
-**Contracts:** Gemini lists short 5- and 15-minute "up" contracts and daily-and-longer price-threshold contracts. We trade both: the hourly threshold ladders use the Smart Money tier (1-hour flows), and the 5- and 15-minute contracts use the Basic tier (5-minute flows).
+## The problem
 
-## How it decides
+AI agents are starting to pay for things themselves, and the paid-data market is moving to pay-per-call (x402). That raises two questions nobody answers well yet:
+
+1. **When is information worth buying?** An agent that buys every data feed on every decision burns money. One that never buys trades blind. The right answer depends on the decision at hand: data is only worth paying for if it could change what you do.
+2. **How do you let an agent spend real money safely?** An LLM with a wallet can be confused, looped, or prompt-injected. Limits have to live outside the model.
+
+PennyWise addresses both in a setting where the answer is measurable: prediction markets settle to $1 or $0, so every data purchase can be scored against what it changed.
+
+## How it works
 
 ```
-free baseline probability  -->  is extra info worth its price?  -->  skip / Basic / Smart Money
-                                                                              |
-                                              pay via x402  -->  update probability  -->  trade or pass
+Gemini markets ──► free baseline forecast ──► is Nansen data worth its price?
+                                                   │ skip / Basic $0.01 / Smart Money $0.05
+                                                   ▼
+                            guardrails ──► human approval (above threshold) ──► x402 payment (USDC on Base)
+                                                   ▼
+                    informed forecast ──► trade or pass (edge after fees) ──► settle ──► score
 ```
 
-- **Baseline:** probability that the price finishes above the strike, from current price, strike, time left, and recent volatility.
-- **Is info worth buying?** Compare the expected gain from better information (bigger when the edge is close to the trade threshold and the position is large) against the price of each tier. Pick the best tier, or skip if none pays for itself. One Nansen call about an asset covers all contracts on that asset, so purchases are shared and cached.
-- **Trade:** buy only if the estimated edge, after fees and spread, clears a threshold. Position size is a small fraction of the Kelly bet, with a hard cap.
-- **The LLM's role:** it explains each decision in plain language and can veto or shrink a trade. It cannot spend more than the code allows.
+1. **Scan.** Pull every live crypto prediction Event from Gemini (BTC, ETH, SOL, XRP): 5- and 15-minute "up" contracts and hourly-and-longer price ladders.
+2. **Baseline forecast (free).** For each Contract, the probability the price finishes above the strike, from spot price, strike, time left and recent volatility.
+3. **Value of information.** Before paying, imagine each reading Nansen might return, from strongly bearish to strongly bullish. Re-run the trade decision under each, and average the extra profit. Buy only if that beats the price. One purchase covers every Contract on that asset, so it is cached and shared.
+4. **Pay with x402.** Nansen answers `402 Payment Required` with a price. PennyWise checks the offer against its own pinned allowlist, signs an EIP-3009 USDC authorization, and retries with the signature. The payment settles on Base.
+5. **Informed forecast and trade.** The on-chain flows (smart-money net flow, whale and exchange flows) are reduced to one reading in [-1, 1] that nudges the forecast. A trade is taken only when the edge after Gemini's taker fee clears 3%, at most one per Event (shadow mode: simulated, 10 contracts).
+6. **Settle and score.** The server settles expired Events every 2 minutes. Scoring compares the baseline forecast, the informed forecast and the market price, and shows Profit (trade P&L minus data spend) per asset, per Tier, and rule vs. LLM.
 
-## Safety limits
+### Two agents, one set of rules
 
-All limits are plain code that runs before any payment is signed. The AI cannot override them.
+- **Rule mode:** the deterministic pipeline above.
+- **LLM mode (Grok, xAI):** a tool-use loop. The model sees the markets and calls `scan_markets`, `estimate_data_value`, `buy_nansen_data`, `wallet_status` and `propose_trade`, and decides what to buy and what to trade. The tools are thin wrappers over the same code. Every purchase still goes through `pay()` and every guardrail, and trade size and the one-trade-per-Event rule stay in code. When the LLM buys data the value check said to skip, the decision is flagged, so scoring can show whether the model or the math spends better. If Grok is unreachable, the cycle falls back to rule mode.
 
-- Only the official Nansen host and its listed endpoints, paid to the expected address, in USDC on Base.
-- Hard cap per call ($0.05), plus per-market, per-run, and daily budgets.
-- A price-drift check against Nansen's published price list, a kill switch, and a pause after repeated payment failures.
-- Wallet capped at about $5 USDC. Trades default to shadow mode; data purchases always go to the real Nansen API.
-- Nansen responses are reduced to numbers before the AI sees them, so text inside a response cannot give it instructions.
+## Architecture
 
-## Scoring
+```mermaid
+flowchart LR
+    UI["Dashboard<br/>React + Tailwind"] -- "/api (poll + controls)" --> API["FastAPI server"]
+    API --> Runner["Runner<br/>(Run button: Cycles on a timer)"]
+    API --> Settler["Settler<br/>(every 2 min)"]
+    Runner --> Cycle{"Cycle<br/>rule or Grok LLM"}
+    Cycle --> Markets["markets/<br/>Gemini client"]
+    Cycle --> Forecast["forecast/ + info/<br/>baseline, value of information"]
+    Cycle --> Nansen["nansen/<br/>get_signals, cache, parsers"]
+    Nansen --> Pay["payments/pay()<br/>guardrails, approval, x402 signing"]
+    Pay -- "USDC on Base (x402)" --> NansenAPI[("api.nansen.ai")]
+    Markets --> Gemini[("Gemini<br/>prediction markets")]
+    Cycle --> Log[("data/decisions.jsonl")]
+    Settler --> Gemini
+    Settler --> Outcomes[("data/outcomes.jsonl")]
+    Pay --> Ledger[("data/payments.jsonl")]
+    Approval["Approve / Deny modal"] -.-> Pay
+    UI --- Approval
+```
 
-Every decision, payment, and trade is logged. After a market settles, we compare the baseline forecast, the informed forecast, and the market price, and calculate what each paid tier cost versus how much it improved the forecast. Results are counted per event, since contracts in one event share an outcome.
-
-## Hackathon
-
-Entered in the **Agentic Payments and AI** track of the University Blockchain Conference hackathon. Submission deadline: Fri Nov 20, 12:00 PM CST.
-
-## Verified so far
-
-- x402 payments to Nansen work end to end: USDC on Base, gasless for us (tested Nov 14: $0.01 Basic and $0.05 Smart Money, both for ETH).
-- Smart Money (`smart-money/netflow`) returns a row for native ETH with a 1h net flow and trader count.
-- Basic (`tgm/flow-intelligence`, 5m) for native ETH is coarse: smart-trader flow came back null and whale flow 0; only exchange net flow had a value.
-- Both tiers work for native SOL (tested 2026-11-20): Smart Money matched 178 traders with a small 1h net flow ($326); Basic had exchange and whale flow but no smart traders. SOL's flow scales are rough guesses from these two calls.
-
-## Still unverified
-
-- Whether Nansen's paid data improves forecasts enough to cover its cost (Basic looks weak for native ETH).
-- Whether SOL's rough flow scales are right (set from one call per tier).
-- Whether `trader_count` from Smart Money covers the last hour or a longer window.
-- Nansen covers BTC only through wrapped tokens and XRP not at all, so both stay baseline-only.
-- Whether Gemini's sandbox lists crypto prediction markets with realistic prices.
-- Which price source Gemini uses to settle its crypto contracts.
-
-## Team
-Andrew: Gemini market data, baseline math, trade/abstain logic, scoring
-
-Chase: x402 wallet and Nansen calls, guardrails and voice approval, dashboard
-
-## INTEGRATE LLM
-
-The payment side fits the track well, but the agent's decisions are currently plain math: no LLM decides anything, and the narrator isn't built yet. This section is the plan for putting an LLM in the loop without weakening any safety limit.
-
-### Where we stand against the track
-
-| Track item | Status |
+| Folder | Role |
 |---|---|
-| Agent pays per request (x402) | **Done.** Real USDC on Base, settled on-chain |
-| Budgets and allowlists | **Done.** Per-call cap, per-Run (settable when you press Run, up to the `.env` cap) and daily budgets, host and endpoint allowlist, price pinning, kill switch, pause after failures |
-| Human approval for large transactions | **Built** (dashboard): purchases at or above a threshold you set wait 90 s for Approve/Deny; no answer trips the kill switch. Voice approval is planned |
-| LLMs that read from and act on the blockchain safely | **Missing.** No LLM is in the loop |
-| Marketplace or service that agents pay for | Not attempted (optional, since the track only says to "aim" for these) |
-| Document the decision loop and safety limits | Partly done here; needs a proper write-up |
+| `src/pennywise/markets/` | Gemini client: live Events, Contract quotes, spot prices, settled outcomes |
+| `src/pennywise/forecast/` | Baseline probability; informed update from a Nansen reading |
+| `src/pennywise/info/` | Value of information: skip, Basic or Smart Money |
+| `src/pennywise/nansen/` | Request bodies, response parsers, cache, flows-to-reading (`interpret.py`), stub data |
+| `src/pennywise/payments/` | The only code that signs: allowlist, pinned prices, budgets, kill switch, human approval, x402, wallet balance |
+| `src/pennywise/trading/` | Edge after fees; picks at most one shadow trade per Event |
+| `src/pennywise/agent/` | Rule cycle, Grok tool loop, the Runner behind the Run button |
+| `src/pennywise/decisions/`, `scoring/` | Decision log and outcomes; settle and score |
+| `src/pennywise/api/` | Thin FastAPI layer; the agent also runs without it from the CLI |
+| `frontend/` | Dashboard (Vite build served by FastAPI at `/`) |
+| `deploy/` | Setup and update scripts for an Ubuntu VM (systemd + Caddy HTTPS) |
 
-### 1. The LLM is the agent; code is the guardrail
+## Safety: the model can trigger spending, never control it
 
-The agent cycle becomes a tool-use loop. The LLM gets tools like these:
+Every limit is plain code that runs **before** a payment is signed. The LLM can only call tools that go through that code.
 
-- `scan_markets`: the Gemini snapshot plus baseline odds
-- `estimate_data_value(asset, tier)`: the existing value-of-information math, given as advice
-- `buy_nansen_data(asset, tier)`: calls `get_signals`, so it goes through `pay()` and every guardrail
-- `wallet_status`: balance, spent today, budget left
-- `propose_trade(event, side)`: code checks the edge, picks the size, and enforces one trade per Event
-- `request_approval(...)`: see section 2
+- **Allowlist:** pays only `api.nansen.ai`, only two endpoints, only to Nansen's pay-to address, only in USDC on Base.
+- **Pinned prices:** every 402 offer must match the price pinned in code ($0.01 / $0.05). Anything else is treated as price drift and refused. Hard cap: $0.05 per call.
+- **Budgets:** per Feed (asset × Tier) per day, per Run (settable when you press Run, never above the `.env` cap), and per day. The daily budget is summed from an append-only ledger, so it survives restarts. Every signed payment is recorded *before* it is sent.
+- **Human approval:** purchases at or above a threshold you set wait 90 s for Approve/Deny on the dashboard. No answer refuses the purchase **and** trips the kill switch.
+- **Kill switch:** one click stops all spending and all trading. A `.env` lock overrides the dashboard.
+- **Pause after failures:** after 3 failed payments in a row, the agent stops paying.
+- **Balance check:** refuses to sign if the on-chain USDC balance can't cover the price.
+- **Prompt-injection defence:** Nansen responses are reduced to numbers before the LLM sees them.
+- **Small blast radius:** the wallet holds about $5, and trades are simulated.
 
-The LLM decides what to buy and why. Code still decides whether a payment can be signed. Every time the LLM goes against the value-of-information check is logged, so scoring can compare whether the LLM or the math rule spent money better.
+## On-chain details
 
-This changes the LLM's role. It used to only explain decisions and veto or shrink trades. Now it may trigger purchases, but only through tools that enforce every limit, and it can never raise or bypass a limit. The current deterministic cycle stays as a fallback mode (for example, if the LLM API is down during the demo).
+| | |
+|---|---|
+| Network | Base mainnet (`eip155:8453`) |
+| Payment protocol | x402 v2, `exact` scheme: EIP-3009 `transferWithAuthorization`, gasless for the agent |
+| USDC on Base | [`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`](https://basescan.org/token/0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913) |
+| Nansen pay-to | [`0x93053f1e7A5eFEDa532Fe69CbbE43cBEc3A0F13f`](https://basescan.org/address/0x93053f1e7A5eFEDa532Fe69CbbE43cBEc3A0F13f) |
+| Agent wallet | [`0xfb7c1232a7a31FFb5C65b94A8A216AB33f3745aB`](https://basescan.org/address/0xfb7c1232a7a31FFb5C65b94A8A216AB33f3745aB) |
+| Example payments | [$0.01 Basic](https://basescan.org/tx/0x74ccdd0728ff53b92f10f54d28b684a62559c2e335aeda797e3af194343a2096) · [$0.05 Smart Money](https://basescan.org/tx/0xa479dc1bf7b642851c25f901489c129e5c1b38e07d9eb0bd4cf8b93e1aa1519b) |
 
-### 2. Human approval for big spends (built, dashboard only)
+Nansen data used: `smart-money/netflow` (Smart Money Tier, 1-hour smart-money net flow, for 1H ladders) and `tgm/flow-intelligence` (Basic Tier, 5-minute smart-trader, whale and exchange flows, for 5- and 15-minute contracts), for ETH on Ethereum and SOL on Solana. Nansen has no XRP coverage and only wrapped BTC, so BTC and XRP trade on the free baseline alone.
 
-An approval step in `payments/guardrails.py`, before signing. Any payment above a set amount (for example a $0.05 Smart Money call, or anything once daily spend passes 50%) waits until a human approves it from the dashboard or by voice. If no one approves it, it is refused. It lives in `payments/`, not in the LLM tools, so the LLM cannot skip it.
+## Technologies
 
-### 3. The LLM reads the chain safely
+- **Blockchain and payments:** Base, USDC, x402 (Coinbase's HTTP payment standard), EIP-3009 / EIP-712 signing with `eth-account`
+- **Data and markets:** Nansen x402 API (on-chain flows on Ethereum and Solana), Gemini prediction markets (public API)
+- **AI:** xAI Grok via the OpenAI-compatible SDK (tool calling)
+- **Backend:** Python 3.11+, FastAPI, httpx, uv
+- **Frontend:** React, TypeScript, Tailwind CSS, Vite
+- **Hosting:** Azure VM (Ubuntu 24.04), systemd, Caddy (automatic HTTPS)
 
-- A tool that confirms each x402 payment on Base over RPC: the USDC transfer to Nansen's pay-to address actually happened, for the right amount.
-- The wallet's USDC balance as a tool.
-- The existing prompt-injection defence: Nansen data reaches the LLM only as numbers, so text inside a response cannot give it instructions.
+## Running it
 
-### 4. Narrator
+Requirements: Python 3.11+ with [uv](https://docs.astral.sh/uv/), Node 22.
 
-The LLM explains each cycle in a few sentences ("bought ETH Smart Money because…, skipped SOL Basic because…"), shown on the dashboard. It reads only the decision log, which holds numbers and fixed labels.
+```bash
+cp .env.example .env            # wallet key, budgets, Grok key; NANSEN_STUB=true = fake data, no spending
+uv sync
+cd frontend && npm ci && npm run build && cd ..
+uv run uvicorn pennywise.api.app:app
+```
 
-### 5. Stretch: sell our forecasts over x402
+Open http://127.0.0.1:8000/ and press **Run**: choose rules or LLM, once or on repeat, and a budget for the Run. With `NANSEN_STUB=false`, the Run pays real USDC, and the dashboard asks you to confirm.
 
-Put PennyWise's informed probabilities behind our own x402 paywall, on Base Sepolia testnet. The agent then both buys data and sells insight, which covers the track's marketplace objective. Only if sections 1–4 are done first.
+Useful commands:
+
+- `uv run python -m pennywise.markets.gemini`: free scan of live Events with the buy/skip decision per asset and Tier
+- `uv run python -m pennywise.agent.runner --every 2m [--mode llm] [--live]`: Runs from a terminal
+- `uv run python -m pennywise.payments --dry-run`: check every guardrail and sign, without paying
+- `uv run python -m pennywise.scoring.score`: Profit and forecast accuracy
+
+Deploying to a fresh Ubuntu VM: `bash deploy/setup.sh <hostname>` (see the script's header). Updates: `bash deploy/update.sh`.
+
+## What we verified
+
+- x402 payments to Nansen work end to end on Base mainnet (first tested Nov 14 for ETH, Nov 20 for SOL).
+- Smart Money returns a native-ETH and native-SOL row (SOL: 178 smart-money traders). Basic is coarse: for ETH, mostly exchange flow; for SOL, exchange and whale flow, no smart traders.
+- Human approval works across processes: approve, deny and timeout were tested, and a timeout trips the kill switch. Stopping a Run denies its pending approval at once.
+
+## Limitations (honest)
+
+- Whether paid data beats its cost is still being measured. The live log started Nov 19, and short-horizon markets are noisy.
+- SOL's flow scales are rough guesses from one live call per Tier. ETH's were set to match our stub data.
+- Trades are simulated at the quoted price, with Gemini's fee. No real orders are placed.
+- One server process holds the Runner and the in-memory guardrail locks, so it is deployed as a single instance.
+
+## What's next
+
+- **Sell our forecasts over x402**, so PennyWise both buys data and sells insight to other agents.
+- **Voice approval** for large purchases, next to the dashboard modal.
+- **On-chain receipt check:** confirm each x402 payment settled on Base for the right amount before trusting the data.
+- **A narrator:** the LLM explains each Cycle in plain language from the decision log.
+- **Calibrate from results:** learn flow scales and the value-of-information priors from settled outcomes, per asset.
+- **Real orders** on Gemini once the informed forecast shows a lasting edge.
