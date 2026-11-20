@@ -14,13 +14,25 @@ import math
 from .endpoints import Tier
 from .signals import NansenSignals
 
-# USD flow that counts as "one unit" (tanh(1) ~ 0.76). Guesses matching the stub's spread;
-# set from real calls (and probably per asset: SOL flows are smaller than ETH's).
-SCALE_USD: dict[str, float] = {
-    "smart_trader": 15_000,
-    "whale": 50_000,
-    "exchange": 100_000,
-    "sm_1h": 20_000,
+# USD flow that counts as "one unit" (tanh(1) ~ 0.76), per asset. Rough guesses, to be
+# refined from real readings (the raw flows are kept in data/nansen_cache.json).
+SCALE_USD: dict[str, dict[str, float]] = {
+    # Matched to the stub's spread.
+    "ETH": {
+        "smart_trader": 15_000,
+        "whale": 50_000,
+        "exchange": 100_000,
+        "sm_1h": 20_000,
+    },
+    # From one live call per Tier (2026-11-20): smart money moved $326 in 1h (178 traders),
+    # exchanges -$449k in 5m, whales -$1.3k, no smart traders. So smart money and whales
+    # get smaller scales than ETH, and exchanges a larger one so one burst doesn't max out.
+    "SOL": {
+        "smart_trader": 5_000,
+        "whale": 15_000,
+        "exchange": 300_000,
+        "sm_1h": 3_000,
+    },
 }
 # Basic tier: how much each wallet segment counts, and which way it points.
 BASIC_WEIGHTS: dict[str, float] = {
@@ -41,7 +53,7 @@ def reading(s: NansenSignals) -> float:
     if s.tier == Tier.SMART_MONEY:
         if s.sm_net_flow_1h_usd is None:
             return 0.0
-        return _squash(s.sm_net_flow_1h_usd, SCALE_USD["sm_1h"])
+        return _squash(s.sm_net_flow_1h_usd, SCALE_USD[s.asset]["sm_1h"])
 
     flows = {
         "smart_trader": s.smart_trader_net_flow_usd,
@@ -54,7 +66,7 @@ def reading(s: NansenSignals) -> float:
             continue
         w = BASIC_WEIGHTS[name]
         trust = 0.5 if name == "smart_trader" and (s.smart_trader_wallet_count or 0) < MIN_TRADERS else 1.0
-        total += trust * w * _squash(usd, SCALE_USD[name])
+        total += trust * w * _squash(usd, SCALE_USD[s.asset][name])
         weight_used += abs(w)  # untrusted flow still counts here, so low trust shrinks the reading
     # Divide by the weight actually used, so missing segments don't drag the reading to 0.
     return total / weight_used if weight_used else 0.0
@@ -73,7 +85,7 @@ def spread(n_per_asset: int = 500) -> dict[Tier, dict[float, float]]:
     out: dict[Tier, dict[float, float]] = {}
     for tier in Tier:
         counts = dict.fromkeys(points, 0)
-        for asset in NATIVE_TOKENS:  # paid assets only (MVP: ETH)
+        for asset in NATIVE_TOKENS:  # paid assets only
             for m in range(n_per_asset):
                 r = reading(stub_signals(asset, tier, start + timedelta(minutes=m)))
                 counts[min(points, key=lambda p: abs(p - r))] += 1

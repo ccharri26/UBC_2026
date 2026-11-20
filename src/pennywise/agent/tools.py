@@ -48,8 +48,8 @@ from pennywise.payments.config import ConfigError, load_limits
 from pennywise.trading.edge import MIN_EDGE
 from pennywise.trading.shadow import pick_trades
 
-# MVP: the LLM may buy Nansen data for ETH only (SOL is untested on both tiers).
-LLM_BUY_ASSETS = frozenset({"ETH"})
+# Assets the LLM may buy Nansen data for (Nansen has no XRP and only wrapped BTC).
+LLM_BUY_ASSETS = frozenset({"ETH", "SOL"})
 # decide() reasons where buying anyway can't help, so the LLM may not override them.
 NO_OVERRIDE = frozenset({"no nansen coverage", "no two-sided contracts", "already paid this slot, no usable data"})
 # Contracts shown per Event in scan_markets (best edge first), to keep the LLM's input small.

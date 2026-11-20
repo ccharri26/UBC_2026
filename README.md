@@ -59,11 +59,12 @@ Entered in the **Agentic Payments and AI** track of the University Blockchain Co
 - x402 payments to Nansen work end to end: USDC on Base, gasless for us (tested Nov 14: $0.01 Basic and $0.05 Smart Money, both for ETH).
 - Smart Money (`smart-money/netflow`) returns a row for native ETH with a 1h net flow and trader count.
 - Basic (`tgm/flow-intelligence`, 5m) for native ETH is coarse: smart-trader flow came back null and whale flow 0; only exchange net flow had a value.
+- Both tiers work for native SOL (tested 2026-11-20): Smart Money matched 178 traders with a small 1h net flow ($326); Basic had exchange and whale flow but no smart traders. SOL's flow scales are rough guesses from these two calls.
 
 ## Still unverified
 
 - Whether Nansen's paid data improves forecasts enough to cover its cost (Basic looks weak for native ETH).
-- SOL on either tier (Solana handles the native-token placeholder differently).
+- Whether SOL's rough flow scales are right (set from one call per tier).
 - Whether `trader_count` from Smart Money covers the last hour or a longer window.
 - Nansen covers BTC only through wrapped tokens and XRP not at all, so both stay baseline-only.
 - Whether Gemini's sandbox lists crypto prediction markets with realistic prices.

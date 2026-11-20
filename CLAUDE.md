@@ -28,7 +28,7 @@ The LLM is **Grok** (xAI), called through the `openai` SDK at `https://api.x.ai/
 
 free baseline probability → value-of-information check → skip / Basic (~$0.01) / Smart Money (~$0.05) → pay via x402 → update probability → trade or pass → score after settlement.
 
-- Paid data is bought only for **ETH and SOL**. Nansen doesn't cover XRP and covers BTC at most through wrapped tokens, so BTC and XRP contracts use the baseline-only path unless a paid test of wrapped BTC proves useful. **For the MVP, buy for ETH only**: SOL is untested on both tiers.
+- Paid data is bought only for **ETH and SOL**. Nansen doesn't cover XRP and covers BTC at most through wrapped tokens, so BTC and XRP contracts use the baseline-only path unless a paid test of wrapped BTC proves useful. Both tiers were tested live for SOL on 2026-11-20; its flow scales in `nansen/interpret.py` are rough guesses from one call each.
 - Target every crypto horizon Gemini lists: the **5- and 15-minute "up" contracts** and the **hourly-and-longer price-threshold ladders** (Gemini files ladders expiring hours to days out under the `1H` series). Each horizon has one paid tier: **Smart Money** (`smart-money/netflow`, 1h window) for 1H ladders, **Basic** (`tgm/flow-intelligence`, 5m window) for 5M and 15M contracts (Nansen has no 15m window). The value-of-information check still decides skip vs. buy.
 - One Nansen call per asset serves every contract on that asset, so cache and share purchases across contracts.
 - Trades run in **shadow mode** (simulated) by default; Gemini sandbox orders are opt-in.

@@ -1,7 +1,7 @@
 """Build the JSON request body for each Nansen endpoint, per asset.
 
-Only assets in NATIVE_TOKENS get paid data (MVP: ETH only). Nansen has no XRP coverage
-and no useful native BTC; SOL is supported by Nansen but disabled until tested post-MVP.
+Only assets in NATIVE_TOKENS get paid data: ETH and SOL (both Tiers tested live). Nansen
+has no XRP coverage and no useful native BTC. Each one needs flow scales in interpret.py.
 Native-token placeholders come from https://docs.nansen.ai/reference/native-tokens
 (copy exactly: a miscased Solana value is silently treated as a normal token).
 """
@@ -19,8 +19,7 @@ class NativeToken:
 
 NATIVE_TOKENS: dict[str, NativeToken] = {
     "ETH": NativeToken("ethereum", "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"),
-    # SOL disabled for the MVP: untested on both tiers. Re-enable once tested post-MVP.
-    # "SOL": NativeToken("solana", "So11111111111111111111111111111111111111112"),
+    "SOL": NativeToken("solana", "So11111111111111111111111111111111111111112"),  # base58: case matters
 }
 
 
