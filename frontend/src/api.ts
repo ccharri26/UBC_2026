@@ -170,9 +170,28 @@ export const getStatus = () => request<Status>("/status");
 export const getWallet = () => request<Wallet>("/wallet");
 export const getPayments = (limit = 50) => request<Payment[]>(`/payments?limit=${limit}`);
 export const getSignals = () => request<Signals>("/signals");
-export const getDecisions = (limit = 50) => request<Decisions>(`/decisions?limit=${limit}`);
+// tradesOnly: only rows with a trade, the newest `limit` of them from the whole log.
+export const getDecisions = (limit = 50, tradesOnly = false) =>
+  request<Decisions>(`/decisions?limit=${limit}${tradesOnly ? "&trades_only=true" : ""}`);
 // include_stub defaults (server side) to the current stub mode.
 export const getScore = () => request<Score>("/score");
+
+// --- settling ------------------------------------------------------------------------
+// The server settles expired Events every every_seconds in the background. Free: no spending.
+
+export interface SettleStatus {
+  auto: boolean; // the background Settler is running
+  every_seconds: number;
+  running: boolean; // a settle is in progress
+  last_at: string | null;
+  last: { checked: number; settled: number; not_yet: number; errors: number } | null;
+  last_error: string | null;
+  next_at: string | null;
+}
+
+export const getSettle = () => request<SettleStatus>("/settle");
+// Settles now and returns the new status; waits if a settle is already running.
+export const settleNow = () => request<SettleStatus>("/settle", { method: "POST", body: "{}" });
 
 // on=true stops all spending and trading. Turning it back on requires confirm=true, and fails (409)
 // while env_lock is set: only a hand edit of .env clears that.

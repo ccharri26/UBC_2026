@@ -88,11 +88,11 @@ export function Profit({ score }: { score?: Score }) {
               )}
             </tbody>
           </Table>
-          <p className="px-5 py-4 text-xs text-ink-3">
-            {score.unsettled_or_unmatched} logged Events not settled yet.{" "}
-            {score.include_stub &&
-              "Stub runs use random Nansen readings, so rows marked fake data say nothing about whether the data helps."}
-          </p>
+          {score.include_stub && (
+            <p className="px-5 py-4 text-xs text-ink-3">
+              Stub runs use random Nansen readings, so rows marked fake data say nothing about whether the data helps.
+            </p>
+          )}
         </>
       )}
     </Card>

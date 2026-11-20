@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getDecisions, getPayments, getRunner, getScore, getSignals, getStatus, getWallet, stopRun } from "./api";
+import { getDecisions, getPayments, getRunner, getScore, getSettle, getSignals, getStatus, getWallet, stopRun } from "./api";
 import { usePoll } from "./lib/usePoll";
 import { ApprovalPrompt } from "./panels/ApprovalPrompt";
 import { Decisions } from "./panels/Decisions";
@@ -21,9 +21,15 @@ export default function App() {
   const runner = usePoll(getRunner, RUNNER_MS);
   const payments = usePoll(() => getPayments(), FAST_MS);
   const signals = usePoll(getSignals, FAST_MS);
-  const decisions = usePoll(() => getDecisions(DECISION_ROWS), FAST_MS);
+  const [tradesOnly, setTradesOnly] = useState(false);
+  const decisions = usePoll(() => getDecisions(DECISION_ROWS, tradesOnly), FAST_MS);
+  const refreshDecisions = decisions.refresh;
+  useEffect(() => {
+    refreshDecisions(); // the filter changed: don't wait for the next poll
+  }, [tradesOnly, refreshDecisions]);
   const wallet = usePoll(getWallet, SLOW_MS); // a failed RPC read just shows "—"
   const score = usePoll(getScore, SLOW_MS);
+  const settle = usePoll(getSettle, SLOW_MS);
 
   const [actionError, setActionError] = useState("");
   const [updatedAt, setUpdatedAt] = useState<Date>();
@@ -69,7 +75,19 @@ export default function App() {
 
         <Hero status={status.data} wallet={wallet.data} score={score.data} />
         <Signals data={signals.data} />
-        <Decisions data={decisions.data} />
+        <Decisions
+          data={decisions.data}
+          tradesOnly={tradesOnly}
+          onTradesOnly={setTradesOnly}
+          settle={settle.data}
+          unsettled={score.data?.unsettled_or_unmatched}
+          onSettled={(s) => {
+            settle.set(s);
+            score.refresh();
+            decisions.refresh(); // trade results appear once their Event settles
+          }}
+          onError={setActionError}
+        />
         <Payments rows={payments.data} />
         <Profit score={score.data} />
         <Guardrails status={status.data} />

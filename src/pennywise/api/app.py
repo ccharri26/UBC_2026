@@ -17,8 +17,11 @@ Rules:
 - Every POST accepts application/json only (see _json_only).
 - Never writes .env. The kill switch lives in data/control.json (payments/control.py);
   KILL_SWITCH=true in .env is a hand-set lock the dashboard can't override.
+- A background Settler (scoring/settle.py) records settled Events every SETTLE_EVERY
+  seconds while the server runs, Run or no Run. It spends nothing.
 """
 
+from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Literal
@@ -46,8 +49,23 @@ from pennywise.nansen.stub import stub_signals
 from pennywise.payments import approval, control, expected, guardrails, wallet
 from pennywise.payments.config import DATA_DIR, ROOT, ConfigError, env, load_limits, usd_to_units
 from pennywise.scoring.score import score, trade_pnl
+from pennywise.scoring.settle import Settler
 
-app = FastAPI(title="PennyWise", description="Read-only views of payments and Nansen signals, plus a kill switch.")
+_settler = Settler()
+
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI):
+    _settler.start()
+    yield
+    _settler.stop()
+
+
+app = FastAPI(
+    title="PennyWise",
+    description="Read-only views of payments and Nansen signals, plus a kill switch.",
+    lifespan=_lifespan,
+)
 
 _BASESCAN_TX = "https://basescan.org/tx/"
 
@@ -153,17 +171,24 @@ def signals() -> dict:
 
 
 @app.get("/api/decisions")
-def decisions(limit: int = 50) -> dict:
+def decisions(limit: int = 50, trades_only: bool = False) -> dict:
     """Decision log (data/decisions.jsonl), newest first: one row per (asset, tier) per cycle.
 
     Each trade gets `result` ("won", "lost", or null until its Event settles) and `pnl_usd`.
     `llm_override` is true when the LLM bought data the value check said to skip.
+    `trades_only` keeps only rows with a trade (the newest `limit` of those, from the whole log).
     `skipped` counts log lines that failed to load.
     """
-    loaded = read_decisions(limit=max(limit, 0))
+    limit = max(limit, 0)
+    if trades_only:
+        loaded = read_decisions()
+        rows = [r for r in loaded.rows if r.trades][-limit:] if limit else []
+    else:
+        loaded = read_decisions(limit=limit)
+        rows = loaded.rows
     outcomes = {o.event: o for o in read_outcomes().rows}
     out = []
-    for row in reversed(loaded.rows):
+    for row in reversed(rows):
         d = row.to_dict()
         d["llm_override"] = row.decided_by == "llm" and not row.info.buy and row.info.source != "none"
         for t, td in zip(row.trades, d["trades"]):
@@ -185,9 +210,22 @@ def score_report(include_stub: bool | None = None) -> dict:
     Profit is `net_pnl_usd`: settled shadow-trade P&L minus Nansen spend. Groups: overall,
     by_decided_by, by_tier, by_asset. `include_stub` defaults to the current NANSEN_STUB, so a
     stub run scores its own rows (their Nansen readings are fake, so informed numbers and
-    trades on paid-data assets mean nothing). Reads local files only; the runner settles Events.
+    trades on paid-data assets mean nothing). Reads local files only; the Settler settles Events.
     """
     return score(include_stub=stub_mode() if include_stub is None else include_stub)
+
+
+@app.get("/api/settle")
+def settle_status() -> dict:
+    """The background Settler: when it last settled, what it found, when it runs next."""
+    return _settler.status()
+
+
+@app.post("/api/settle")
+def settle_now(request: Request) -> dict:
+    """Settle now (free Gemini lookups, no spending). Waits for a settle already in progress."""
+    _json_only(request)
+    return _settler.run_now()
 
 
 class KillSwitch(BaseModel):
